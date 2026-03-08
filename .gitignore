@@ -1,0 +1,23 @@
+# ── .NET ──────────────────────────────────────────────────────────────────
+bin/
+obj/
+*.user
+*.suo
+.vs/
+*.db
+*.sqlite
+
+# Ortam ve gizli ayarlar
+appsettings.Development.json
+*.env
+.env
+
+# ── Node / Frontend ────────────────────────────────────────────────────────
+node_modules/
+dist/
+.vite/
+
+# ── Genel ──────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.log
