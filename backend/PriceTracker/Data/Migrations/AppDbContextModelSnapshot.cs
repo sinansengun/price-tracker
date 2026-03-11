@@ -22,6 +22,27 @@ namespace PriceTracker.Data.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("PriceTracker.Models.Label", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Color")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Labels");
+                });
+
             modelBuilder.Entity("PriceTracker.Models.PriceHistory", b =>
                 {
                     b.Property<int>("Id")
@@ -88,6 +109,21 @@ namespace PriceTracker.Data.Migrations
                     b.ToTable("Products");
                 });
 
+            modelBuilder.Entity("ProductLabel", b =>
+                {
+                    b.Property<int>("LabelsId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ProductsId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("LabelsId", "ProductsId");
+
+                    b.HasIndex("ProductsId");
+
+                    b.ToTable("ProductLabel");
+                });
+
             modelBuilder.Entity("PriceTracker.Models.PriceHistory", b =>
                 {
                     b.HasOne("PriceTracker.Models.Product", "Product")
@@ -97,6 +133,21 @@ namespace PriceTracker.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("ProductLabel", b =>
+                {
+                    b.HasOne("PriceTracker.Models.Label", null)
+                        .WithMany()
+                        .HasForeignKey("LabelsId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("PriceTracker.Models.Product", null)
+                        .WithMany()
+                        .HasForeignKey("ProductsId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("PriceTracker.Models.Product", b =>

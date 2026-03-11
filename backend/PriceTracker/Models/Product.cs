@@ -14,4 +14,5 @@ public class Product
     public DateTime? LastCheckedAt { get; set; }
 
     public List<PriceHistory> PriceHistories { get; set; } = [];
+    public List<Label> Labels { get; set; } = [];
 }

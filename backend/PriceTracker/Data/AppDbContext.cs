@@ -7,6 +7,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 {
     public DbSet<Product> Products => Set<Product>();
     public DbSet<PriceHistory> PriceHistories => Set<PriceHistory>();
+    public DbSet<Label> Labels => Set<Label>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -26,5 +27,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
              .HasForeignKey(h => h.ProductId)
              .OnDelete(DeleteBehavior.Cascade);
         });
+
+        modelBuilder.Entity<Product>()
+            .HasMany(p => p.Labels)
+            .WithMany(l => l.Products)
+            .UsingEntity("ProductLabel");
     }
 }

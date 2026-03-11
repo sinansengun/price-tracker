@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { LineChart, Line, ResponsiveContainer, Tooltip } from 'recharts'
-import { getProducts, createProduct, Product, PriceHistory } from '../api/api'
+import {
+  getProducts, getLabels, createProduct, addProductLabel, removeProductLabel, createLabel, deleteLabel,
+  Product, Label, PriceHistory
+} from '../api/api'
 
 function AddProductModal({ onClose, onAdded }: { onClose: () => void; onAdded: () => void }) {
   const [url, setUrl]               = useState('')
@@ -103,6 +107,149 @@ function fmtDate(iso: string, includeTime = false) {
   })
 }
 
+function LabelDropdown({
+  product, allLabels, onProductLabelsChange, onNewLabel
+}: {
+  product: Product
+  allLabels: Label[]
+  onProductLabelsChange: (productId: number, labels: Label[]) => void
+  onNewLabel: (label: Label) => void
+}) {
+  const [open, setOpen]     = useState(false)
+  const [search, setSearch] = useState('')
+  const [color, setColor]   = useState('#6366f1')
+  const [saving, setSaving] = useState(false)
+  const [pos, setPos]       = useState({ top: 0, left: 0 })
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const dropRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (
+        dropRef.current && !dropRef.current.contains(e.target as Node) &&
+        btnRef.current && !btnRef.current.contains(e.target as Node)
+      ) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  const handleOpen = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect()
+      setPos({ top: r.bottom + window.scrollY + 2, left: r.left + window.scrollX })
+    }
+    setOpen(v => !v)
+  }
+
+  const currentLabels = product.labels ?? []
+
+  const handleToggle = async (label: Label) => {
+    const has = currentLabels.some(l => l.id === label.id)
+    try {
+      if (has) {
+        await removeProductLabel(product.id, label.id)
+        onProductLabelsChange(product.id, currentLabels.filter(l => l.id !== label.id))
+      } else {
+        await addProductLabel(product.id, label.id)
+        onProductLabelsChange(product.id, [...currentLabels, label])
+      }
+    } catch { /* ignore */ }
+  }
+
+  const handleCreate = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!search.trim()) return
+    setSaving(true)
+    try {
+      const res = await createLabel(search.trim(), color)
+      const created = res.data
+      onNewLabel(created)
+      await addProductLabel(product.id, created.id)
+      onProductLabelsChange(product.id, [...currentLabels, created])
+      setSearch('')
+      setColor('#6366f1')
+    } catch { /* ignore */ } finally {
+      setSaving(false)
+    }
+  }
+
+  const filtered = allLabels.filter(l =>
+    !search.trim() || l.name.toLowerCase().includes(search.toLowerCase())
+  )
+  const canCreate = search.trim() && !allLabels.some(l => l.name.toLowerCase() === search.trim().toLowerCase())
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        onClick={handleOpen}
+        className="text-[10px] font-bold uppercase tracking-wide text-gray-400 bg-gray-100 hover:bg-gray-200 px-1.5 py-0.5 rounded transition-colors"
+      >
+        + Label
+      </button>
+
+      {open && createPortal(
+        <div
+          ref={dropRef}
+          style={{ position: 'absolute', top: pos.top, left: pos.left }}
+          className="z-[9999] w-60 bg-white border border-gray-200 rounded-lg shadow-xl"
+          onClick={e => e.stopPropagation()}
+        >
+          <form onSubmit={handleCreate} className="flex items-center gap-1.5 p-2 border-b border-gray-100">
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Ara veya oluştur..."
+              autoFocus
+              className="flex-1 min-w-0 text-xs px-2 py-1.5 border border-gray-200 rounded focus:outline-none focus:ring-2 focus:ring-brand-400"
+            />
+            <input
+              type="color"
+              value={color}
+              onChange={e => setColor(e.target.value)}
+              className="w-7 h-7 rounded border border-gray-200 cursor-pointer p-0.5 shrink-0"
+              title="Renk seç"
+            />
+            {canCreate && (
+              <button
+                type="submit"
+                disabled={saving}
+                className="text-xs bg-brand-600 text-white px-2 py-1.5 rounded hover:bg-brand-700 transition-colors disabled:opacity-40 font-medium shrink-0"
+              >
+                {saving ? '...' : 'Ekle'}
+              </button>
+            )}
+          </form>
+
+          <div className="max-h-48 overflow-y-auto py-1">
+            {filtered.map(l => {
+              const attached = currentLabels.some(pl => pl.id === l.id)
+              return (
+                <button
+                  key={l.id}
+                  onClick={() => handleToggle(l)}
+                  className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-gray-50 transition-colors"
+                >
+                  <span className="w-3 h-3 rounded-sm shrink-0" style={{ backgroundColor: l.color }} />
+                  <span className="text-xs text-gray-700 flex-1 truncate">{l.name}</span>
+                  {attached && <span className="text-brand-600 text-xs">✓</span>}
+                </button>
+              )
+            })}
+            {filtered.length === 0 && !canCreate && (
+              <p className="px-3 py-2 text-xs text-gray-400">Eşleşen label yok</p>
+            )}
+          </div>
+        </div>,
+        document.body
+      )}
+    </>
+  )
+}
+
 function MiniChart({ histories }: { histories?: PriceHistory[] }) {
   if (!histories || histories.length < 2) return null
   const data = [...histories]
@@ -128,7 +275,15 @@ function MiniChart({ histories }: { histories?: PriceHistory[] }) {
   )
 }
 
-function ProductRow({ product }: { product: Product }) {
+function ProductRow({
+  product, allLabels, onProductLabelsChange, onNewLabel, onLabelClick
+}: {
+  product: Product
+  allLabels: Label[]
+  onProductLabelsChange: (productId: number, labels: Label[]) => void
+  onNewLabel: (label: Label) => void
+  onLabelClick: (labelId: number) => void
+}) {
   const navigate = useNavigate()
   const imgSrc = product.imageUrl?.replace('{size}', '200')
 
@@ -187,12 +342,28 @@ function ProductRow({ product }: { product: Product }) {
           )}
         </div>
 
-        <div className="mt-2 flex items-center gap-2 flex-wrap">
+        <div className="mt-3 flex items-center gap-1.5 flex-wrap py-1.5" onClick={e => e.stopPropagation()}>
           {product.store && (
             <span className="text-xs font-medium bg-brand-50 text-brand-700 border border-brand-200 px-2 py-0.5 rounded-full">
               {product.store}
             </span>
           )}
+          {product.labels?.map(l => (
+            <button
+              key={l.id}
+              onClick={e => { e.stopPropagation(); onLabelClick(l.id) }}
+              className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded cursor-pointer hover:brightness-90 transition-all"
+              style={{ backgroundColor: l.color + '1A', color: l.color }}
+            >
+              {l.name}
+            </button>
+          ))}
+          <LabelDropdown
+            product={product}
+            allLabels={allLabels}
+            onProductLabelsChange={onProductLabelsChange}
+            onNewLabel={onNewLabel}
+          />
           {product.targetPrice != null && (
             <span className="text-xs text-gray-400">🎯 Hedef: {fmt(product.targetPrice)}</span>
           )}
@@ -266,6 +437,19 @@ function ProductCard({ product }: { product: Product }) {
             {product.store}
           </span>
         )}
+        {product.labels && product.labels.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {product.labels.map(l => (
+              <span
+                key={l.id}
+                className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded"
+                style={{ backgroundColor: l.color + '1A', color: l.color }}
+              >
+                {l.name}
+              </span>
+            ))}
+          </div>
+        )}
         <p className="text-sm font-semibold text-gray-900 leading-snug line-clamp-2">
           {product.name || 'Yükleniyor...'}
         </p>
@@ -293,21 +477,36 @@ function ProductCard({ product }: { product: Product }) {
 type ViewMode = 'list' | 'grid'
 
 export default function ProductsPage() {
-  const [products, setProducts]   = useState<Product[]>([])
-  const [loading, setLoading]     = useState(true)
-  const [showModal, setShowModal] = useState(false)
-  const [view, setView]           = useState<ViewMode>('list')
+  const [products, setProducts]       = useState<Product[]>([])
+  const [labels, setLabels]           = useState<Label[]>([])
+  const [activeLabel, setActiveLabel] = useState<number | null>(null)
+  const [loading, setLoading]         = useState(true)
+  const [showModal, setShowModal]     = useState(false)
+  const [view, setView]               = useState<ViewMode>('list')
 
   const load = async () => {
     try {
-      const res = await getProducts()
-      setProducts(res.data)
+      const [prodRes, lblRes] = await Promise.all([getProducts(), getLabels()])
+      setProducts(prodRes.data)
+      setLabels(lblRes.data)
     } finally {
       setLoading(false)
     }
   }
 
   useEffect(() => { load() }, [])
+
+  const handleProductLabelsChange = (productId: number, newLabels: Label[]) => {
+    setProducts(prev => prev.map(p => p.id === productId ? { ...p, labels: newLabels } : p))
+  }
+
+  const handleNewLabel = (label: Label) => {
+    setLabels(prev => [...prev, label])
+  }
+
+  const filtered = activeLabel == null
+    ? products
+    : products.filter(p => p.labels?.some(l => l.id === activeLabel))
 
   return (
     <div className="min-h-screen">
@@ -341,6 +540,40 @@ export default function ProductsPage() {
       </header>
 
       <main className="max-w-5xl mx-auto px-4 py-8">
+        {/* Label filter bar */}
+        {!loading && labels.length > 0 && (
+          <div className="flex items-center gap-2 flex-wrap mb-6">
+            <button
+              onClick={() => setActiveLabel(null)}
+              className={`text-[10px] font-bold uppercase tracking-wide px-2.5 py-1 rounded transition-colors ${
+                activeLabel === null
+                  ? 'bg-gray-900 text-white'
+                  : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+              }`}
+            >
+              Tümü
+            </button>
+            {labels.map(l => (
+              <button
+                key={l.id}
+                onClick={() => setActiveLabel(activeLabel === l.id ? null : l.id)}
+                className={`text-[10px] font-bold uppercase tracking-wide px-2.5 py-1 rounded transition-all ${
+                  activeLabel === l.id
+                    ? 'ring-2 ring-offset-1'
+                    : 'hover:brightness-90'
+                }`}
+                style={{
+                  backgroundColor: l.color + (activeLabel === l.id ? '33' : '1A'),
+                  color: l.color,
+                  ...(activeLabel === l.id ? { ringColor: l.color } as any : {})
+                }}
+              >
+                {l.name}
+              </button>
+            ))}
+          </div>
+        )}
+
         {loading ? (
           <div className="flex justify-center items-center py-24">
             <div className="w-8 h-8 border-4 border-brand-500 border-t-transparent rounded-full animate-spin" />
@@ -353,13 +586,38 @@ export default function ProductsPage() {
               İlk ürünü ekle →
             </button>
           </div>
+        ) : filtered.length === 0 ? (
+          <div className="text-center py-24 space-y-2">
+            <p className="text-4xl">🏷️</p>
+            <p className="text-gray-500 font-medium">Bu label ile eşleşen ürün yok</p>
+            <button
+              onClick={async () => {
+                if (activeLabel == null) return
+                await deleteLabel(activeLabel)
+                setLabels(prev => prev.filter(l => l.id !== activeLabel))
+                setActiveLabel(null)
+              }}
+              className="mt-1 text-xs text-red-500 hover:text-red-700 hover:underline font-medium transition-colors"
+            >
+              Label'ı sil
+            </button>
+          </div>
         ) : view === 'list' ? (
           <div className="space-y-2">
-            {products.map(p => <ProductRow key={p.id} product={p} />)}
+            {filtered.map(p => (
+              <ProductRow
+                key={p.id}
+                product={p}
+                allLabels={labels}
+                onProductLabelsChange={handleProductLabelsChange}
+                onNewLabel={handleNewLabel}
+                onLabelClick={setActiveLabel}
+              />
+            ))}
           </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-            {products.map(p => <ProductCard key={p.id} product={p} />)}
+            {filtered.map(p => <ProductCard key={p.id} product={p} />)}
           </div>
         )}
       </main>

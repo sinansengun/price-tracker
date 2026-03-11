@@ -18,6 +18,7 @@ public class ProductsController(
     public async Task<IActionResult> GetAll()
     {
         var products = await db.Products
+            .Include(p => p.Labels)
             .OrderByDescending(p => p.CreatedAt)
             .Select(p => new
             {
@@ -31,6 +32,7 @@ public class ProductsController(
                 p.TargetPrice,
                 p.LastCheckedAt,
                 p.CreatedAt,
+                Labels = p.Labels.Select(l => new { l.Id, l.Name, l.Color }),
                 PriceHistories = p.PriceHistories
                     .OrderBy(h => h.CheckedAt)
                     .Select(h => new { h.Price, h.CheckedAt })
@@ -45,11 +47,13 @@ public class ProductsController(
     public async Task<IActionResult> GetById(int id)
     {
         var product = await db.Products
+            .Include(p => p.Labels)
             .Where(p => p.Id == id)
             .Select(p => new
             {
                 p.Id, p.Name, p.Url, p.ImageUrl, p.Store,
-                p.CurrentPrice, p.TargetPrice, p.LastCheckedAt, p.CreatedAt,
+                p.InitialPrice, p.CurrentPrice, p.TargetPrice, p.LastCheckedAt, p.CreatedAt,
+                Labels = p.Labels.Select(l => new { l.Id, l.Name, l.Color }),
                 PriceHistories = p.PriceHistories
                     .OrderByDescending(h => h.CheckedAt)
                     .Take(50)
@@ -146,6 +150,40 @@ public class ProductsController(
             .ToListAsync();
 
         return Ok(history);
+    }
+
+    // POST api/products/{id}/labels/{labelId}
+    [HttpPost("{id:int}/labels/{labelId:int}")]
+    public async Task<IActionResult> AddLabel(int id, int labelId)
+    {
+        var product = await db.Products.Include(p => p.Labels).FirstOrDefaultAsync(p => p.Id == id);
+        if (product == null) return NotFound(new { error = "Ürün bulunamadı." });
+
+        var label = await db.Labels.FindAsync(labelId);
+        if (label == null) return NotFound(new { error = "Label bulunamadı." });
+
+        if (!product.Labels.Any(l => l.Id == labelId))
+            product.Labels.Add(label);
+
+        await db.SaveChangesAsync();
+        return Ok(new { label.Id, label.Name, label.Color });
+    }
+
+    // DELETE api/products/{id}/labels/{labelId}
+    [HttpDelete("{id:int}/labels/{labelId:int}")]
+    public async Task<IActionResult> RemoveLabel(int id, int labelId)
+    {
+        var product = await db.Products.Include(p => p.Labels).FirstOrDefaultAsync(p => p.Id == id);
+        if (product == null) return NotFound();
+
+        var label = product.Labels.FirstOrDefault(l => l.Id == labelId);
+        if (label != null)
+        {
+            product.Labels.Remove(label);
+            await db.SaveChangesAsync();
+        }
+
+        return NoContent();
     }
 }
 
