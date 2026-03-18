@@ -4,14 +4,17 @@ using PriceTracker.Services.Scrapers;
 namespace PriceTracker.Services;
 
 /// <summary>
-/// Kayitli ISiteScraper'lari kullanarak URL'den fiyat/ürün bilgisi çeken orkestratör.
-/// Yeni bir site eklemek için yalnizca yeni bir ISiteScraper implementasyonu olusturup
+/// Kayitli ISiteScraper'lari kullanarak URL'den fiyat/ï¿½rï¿½n bilgisi ï¿½eken orkestratï¿½r.
+/// Yeni bir site eklemek iï¿½in yalnizca yeni bir ISiteScraper implementasyonu olusturup
 /// DI'a kaydetmek yeterlidir.
 /// </summary>
+using Microsoft.Playwright;
+
 public class ScraperService(
     ILogger<ScraperService> logger,
     IEnumerable<ISiteScraper> scrapers,
-    IHttpClientFactory httpClientFactory)
+    IHttpClientFactory httpClientFactory,
+    PlaywrightService playwright)
 {
     public async Task<ScrapeResult?> ScrapeAsync(string url)
     {
@@ -32,7 +35,7 @@ public class ScraperService(
         }
     }
 
-    //  Debug helper (geçici  /api/products/{id}/debug-html endpoint'i için) 
+    //  Debug helper (geï¿½ici  /api/products/{id}/debug-html endpoint'i iï¿½in) 
 
     public async Task<string> GetHtmlSnippetForDebugAsync(string url)
     {
@@ -60,12 +63,12 @@ public class ScraperService(
              l.Contains("salePrice") || l.Contains("currentPrice") ||
              Regex.IsMatch(l, @"\d{3,5}[.,]\d{2}"))
             && l.Trim().Length < 300).Take(15);
-        sb.AppendLine("\n=== price/fiyat geçen satirlar (ilk 15) ===");
+        sb.AppendLine("\n=== price/fiyat geï¿½en satirlar (ilk 15) ===");
         foreach (var l in priceLines) sb.AppendLine(l.Trim());
 
         var inlineScripts = Regex.Matches(html, @"<script(?![^>]+src)[^>]*>([\s\S]*?)</script>")
             .Cast<Match>().OrderByDescending(m => m.Groups[1].Length).Take(5);
-        sb.AppendLine("\n=== En büyük inline script'ler (ilk 100 char) ===");
+        sb.AppendLine("\n=== En bï¿½yï¿½k inline script'ler (ilk 100 char) ===");
         foreach (var s in inlineScripts)
             sb.AppendLine($"[{s.Groups[1].Length} chars] {s.Groups[1].Value.Trim()[..Math.Min(100, s.Groups[1].Value.Trim().Length)]}");
 
@@ -81,7 +84,20 @@ public class ScraperService(
         request.Headers.TryAddWithoutValidation("Accept-Language", "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7");
 
         using var response = await client.SendAsync(request);
-        if (!response.IsSuccessStatusCode) return null;
-        return await response.Content.ReadAsStringAsync();
+        if (response.IsSuccessStatusCode)
+            return await response.Content.ReadAsStringAsync();
+
+        // Fallback: HTTP ile alÄ±namadÄ±ysa Playwright ile render edip dene
+        try
+        {
+            var rendered = await playwright.FetchHtmlAsync(url, WaitUntilState.NetworkIdle);
+            if (!string.IsNullOrWhiteSpace(rendered)) return rendered;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Playwright fallback failed for debug HTML: {Url}", url);
+        }
+
+        return null;
     }
 }
