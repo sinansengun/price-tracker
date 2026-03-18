@@ -1,6 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
+
+function StoreBadge({ store, url }: { store: string; url: string }) {
+  const domain = (() => { try { return new URL(url).hostname } catch { return '' } })()
+  const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : ''
+  return (
+    <span className="inline-flex items-center gap-1 text-xs font-medium bg-brand-50 text-brand-700 border border-brand-200 px-2 py-0.5 rounded-full">
+      {faviconUrl && <img src={faviconUrl} alt="" className="w-4 h-4 rounded-sm" />}
+      {store}
+    </span>
+  )
+}
 import { LineChart, Line, ResponsiveContainer, Tooltip } from 'recharts'
 import {
   getProducts, getLabels, createProduct, addProductLabel, removeProductLabel, createLabel, deleteLabel,
@@ -343,11 +354,7 @@ function ProductRow({
         </div>
 
         <div className="mt-3 flex items-center gap-1.5 flex-wrap py-1.5" onClick={e => e.stopPropagation()}>
-          {product.store && (
-            <span className="text-xs font-medium bg-brand-50 text-brand-700 border border-brand-200 px-2 py-0.5 rounded-full">
-              {product.store}
-            </span>
-          )}
+          {product.store && <StoreBadge store={product.store} url={product.url} />}
           {product.labels?.map(l => (
             <button
               key={l.id}
@@ -432,11 +439,7 @@ function ProductCard({ product }: { product: Product }) {
           : <span className="text-4xl">🛍️</span>}
       </div>
       <div className="p-4 space-y-2">
-        {product.store && (
-          <span className="inline-block text-xs font-medium bg-brand-100 text-brand-700 px-2 py-0.5 rounded-full">
-            {product.store}
-          </span>
-        )}
+        {product.store && <StoreBadge store={product.store} url={product.url} />}
         {product.labels && product.labels.length > 0 && (
           <div className="flex flex-wrap gap-1">
             {product.labels.map(l => (

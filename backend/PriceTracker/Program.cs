@@ -36,8 +36,11 @@ builder.Services.AddHttpClient("Scraper")
     });
 
 // Site scrapers — yeni bir site eklemek için buraya ISiteScraper implementasyonu kaydet
+builder.Services.AddSingleton<PlaywrightService>();
 builder.Services.AddScoped<ISiteScraper, HepsiburadaScraper>();
 builder.Services.AddScoped<ISiteScraper, AmazonScraper>();
+builder.Services.AddScoped<ISiteScraper, AbtSaatScraper>();
+builder.Services.AddScoped<ISiteScraper, AydinSaatScraper>();
 
 // App services
 builder.Services.AddScoped<ScraperService>();

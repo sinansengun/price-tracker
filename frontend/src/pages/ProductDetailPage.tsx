@@ -1,5 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
+
+function StoreBadge({ store, url }: { store: string; url: string }) {
+  const domain = (() => { try { return new URL(url).hostname } catch { return '' } })()
+  const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : ''
+  return (
+    <span className="inline-flex items-center gap-1 text-xs font-medium bg-brand-100 text-brand-700 px-2 py-0.5 rounded-full">
+      {faviconUrl && <img src={faviconUrl} alt="" className="w-4 h-4 rounded-sm" />}
+      {store}
+    </span>
+  )
+}
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer
 } from 'recharts'
@@ -182,11 +193,7 @@ export default function ProductDetailPage() {
 
           <div className="flex-1 min-w-0 space-y-3">
             <div className="flex items-start gap-2 flex-wrap">
-              {product.store && (
-                <span className="text-xs font-medium bg-brand-100 text-brand-700 px-2 py-0.5 rounded-full">
-                  {product.store}
-                </span>
-              )}
+              {product.store && <StoreBadge store={product.store} url={product.url} />}
               <a
                 href={product.url}
                 target="_blank"
