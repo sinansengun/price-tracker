@@ -16,7 +16,7 @@ import {
 } from 'recharts'
 import {
   getProduct, checkProduct, deleteProduct, getLabels, createLabel, addProductLabel, removeProductLabel,
-  ProductDetail, Label
+  flattenProduct, UserProductResponse, Product, Label
 } from '../api/api'
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -52,7 +52,8 @@ function CustomTooltip({ active, payload, label }: any) {
 export default function ProductDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const [product, setProduct]   = useState<ProductDetail | null>(null)
+  const [product, setProduct]   = useState<UserProductResponse | null>(null)
+  const [flatProduct, setFlatProduct] = useState<Product | null>(null)
   const [allLabels, setAllLabels] = useState<Label[]>([])
   const [loading, setLoading]   = useState(true)
   const [checking, setChecking] = useState(false)
@@ -79,6 +80,7 @@ export default function ProductDetailPage() {
     try {
       const [prodRes, lblRes] = await Promise.all([getProduct(Number(id)), getLabels()])
       setProduct(prodRes.data)
+      setFlatProduct(flattenProduct(prodRes.data))
       setAllLabels(lblRes.data)
     } catch {
       setError('Ürün bulunamadı.')
@@ -101,14 +103,16 @@ export default function ProductDetailPage() {
 
   const handleToggleLabel = async (label: Label) => {
     if (!product) return
-    const has = product.labels.some(l => l.id === label.id)
+    const has = (product as any).labels?.some((l: Label) => l.id === label.id)
     try {
       if (has) {
         await removeProductLabel(product.id, label.id)
-        setProduct(p => p ? { ...p, labels: p.labels.filter(l => l.id !== label.id) } : p)
+        setProduct(p => p ? { ...p, labels: (p.labels ?? []).filter(l => l.id !== label.id) } as any : p)
+        setFlatProduct(p => p ? { ...p, labels: (p.labels ?? []).filter(l => l.id !== label.id) } : p)
       } else {
         await addProductLabel(product.id, label.id)
-        setProduct(p => p ? { ...p, labels: [...p.labels, label] } : p)
+        setProduct(p => p ? { ...p, labels: [...(p.labels ?? []), label] } as any : p)
+        setFlatProduct(p => p ? { ...p, labels: [...(p.labels ?? []), label] } : p)
       }
     } catch { /* ignore */ }
   }
@@ -126,7 +130,8 @@ export default function ProductDetailPage() {
       // Also attach to current product
       if (product) {
         await addProductLabel(product.id, created.id)
-        setProduct(p => p ? { ...p, labels: [...p.labels, created] } : p)
+        setProduct(p => p ? { ...p, labels: [...(p.labels ?? []), created] } as any : p)
+        setFlatProduct(p => p ? { ...p, labels: [...(p.labels ?? []), created] } : p)
       }
     } catch { /* ignore */ } finally {
       setLabelSaving(false)
@@ -141,7 +146,7 @@ export default function ProductDetailPage() {
     )
   }
 
-  if (error || !product) {
+  if (error || !product || !flatProduct) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen gap-3">
         <p className="text-gray-500">{error || 'Ürün bulunamadı.'}</p>
@@ -150,13 +155,14 @@ export default function ProductDetailPage() {
     )
   }
 
-  const imgSrc = product.imageUrl?.replace('{size}', '375')
+  const p = flatProduct
+  const imgSrc = p.imageUrl?.replace('{size}', '375')
 
-  const priceChange = product.initialPrice && product.currentPrice
-    ? ((product.currentPrice - product.initialPrice) / product.initialPrice) * 100
+  const priceChange = p.initialPrice && p.currentPrice
+    ? ((p.currentPrice - p.initialPrice) / p.initialPrice) * 100
     : null
 
-  const chartData = [...product.priceHistories]
+  const chartData = [...(p?.priceHistories ?? [])]
     .sort((a, b) => new Date(a.checkedAt).getTime() - new Date(b.checkedAt).getTime())
     .map(h => ({ date: fmtDateShort(h.checkedAt), price: h.price, full: h.checkedAt }))
 
@@ -175,7 +181,7 @@ export default function ProductDetailPage() {
           >
             ←
           </button>
-          <h1 className="text-lg font-bold text-gray-900 truncate">{product.name}</h1>
+          <h1 className="text-lg font-bold text-gray-900 truncate">{p.name}</h1>
         </div>
       </header>
 
@@ -185,7 +191,7 @@ export default function ProductDetailPage() {
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 flex gap-6">
           <div className="shrink-0 w-32 h-32 bg-gray-50 rounded-xl flex items-center justify-center overflow-hidden">
             {imgSrc ? (
-              <img src={imgSrc} alt={product.name} className="w-full h-full object-contain p-2" />
+              <img src={imgSrc} alt={p.name} className="w-full h-full object-contain p-2" />
             ) : (
               <span className="text-4xl">🛍️</span>
             )}
@@ -193,9 +199,9 @@ export default function ProductDetailPage() {
 
           <div className="flex-1 min-w-0 space-y-3">
             <div className="flex items-start gap-2 flex-wrap">
-              {product.store && <StoreBadge store={product.store} url={product.url} />}
+              {p.store && <StoreBadge store={p.store} url={p.url} />}
               <a
-                href={product.url}
+                href={p.url}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-xs text-gray-400 hover:text-brand-600 transition-colors truncate max-w-xs"
@@ -204,12 +210,12 @@ export default function ProductDetailPage() {
               </a>
             </div>
 
-            <p className="text-base font-semibold text-gray-900 leading-snug">{product.name}</p>
+            <p className="text-base font-semibold text-gray-900 leading-snug">{p.name}</p>
 
             {/* Prices */}
             <div className="flex items-center gap-3 flex-wrap">
-              {product.currentPrice != null && (
-                <span className="text-2xl font-bold text-gray-900">{fmt(product.currentPrice)}</span>
+              {p.currentPrice != null && (
+                <span className="text-2xl font-bold text-gray-900">{fmt(p.currentPrice)}</span>
               )}
               {priceChange !== null && Math.abs(priceChange) >= 0.01 && (
                 <span
@@ -223,14 +229,14 @@ export default function ProductDetailPage() {
             </div>
 
             <div className="flex gap-6 text-xs text-gray-500 flex-wrap">
-              {product.initialPrice != null && (
-                <span>Başlangıç: <strong className="text-gray-700">{fmt(product.initialPrice)}</strong></span>
+              {p.initialPrice != null && (
+                <span>Başlangıç: <strong className="text-gray-700">{fmt(p.initialPrice)}</strong></span>
               )}
-              {product.targetPrice != null && (
-                <span>🎯 Hedef: <strong className="text-gray-700">{fmt(product.targetPrice)}</strong></span>
+              {p.targetPrice != null && (
+                <span>🎯 Hedef: <strong className="text-gray-700">{fmt(p.targetPrice)}</strong></span>
               )}
-              {product.lastCheckedAt && (
-                <span>Son kontrol: <strong className="text-gray-700">{fmtDate(product.lastCheckedAt)}</strong></span>
+              {p.lastCheckedAt && (
+                <span>Son kontrol: <strong className="text-gray-700">{fmtDate(p.lastCheckedAt)}</strong></span>
               )}
             </div>
 
@@ -263,7 +269,7 @@ export default function ProductDetailPage() {
             {/* Labels */}
             <div className="pt-1">
               <div className="flex items-center gap-1.5 flex-wrap relative">
-                {product.labels.map(l => (
+                {(p.labels ?? []).map(l => (
                   <span
                     key={l.id}
                     className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded"
@@ -322,7 +328,7 @@ export default function ProductDetailPage() {
                           {allLabels
                             .filter(l => !newLabelName.trim() || l.name.toLowerCase().includes(newLabelName.toLowerCase()))
                             .map(l => {
-                              const attached = product.labels.some(pl => pl.id === l.id)
+                              const attached = flatProduct?.labels?.some((pl: Label) => pl.id === l.id)
                               return (
                                 <button
                                   key={l.id}
@@ -386,13 +392,13 @@ export default function ProductDetailPage() {
         )}
 
         {/* Price history table */}
-        {product.priceHistories.length > 0 && (
+        {(p?.priceHistories ?? []).length > 0 && (
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-100">
               <h2 className="text-base font-bold text-gray-900">Kontrol Kayıtları</h2>
             </div>
             <div className="divide-y divide-gray-50">
-              {[...product.priceHistories]
+              {[...(p?.priceHistories ?? [])]
                 .sort((a, b) => new Date(b.checkedAt).getTime() - new Date(a.checkedAt).getTime())
                 .map((h, i) => (
                   <div key={i} className="flex items-center justify-between px-6 py-3">

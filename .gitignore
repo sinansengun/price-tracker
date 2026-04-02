@@ -9,6 +9,7 @@ obj/
 
 # Ortam ve gizli ayarlar
 appsettings.Development.json
+appsettings.json
 *.env
 .env
 

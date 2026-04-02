@@ -1,3 +1,5 @@
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using PriceTracker.Data;
@@ -7,13 +9,17 @@ namespace PriceTracker.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[Authorize]
 public class LabelsController(AppDbContext db) : ControllerBase
 {
+    private string UserId => User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+
     // GET api/labels
     [HttpGet]
     public async Task<IActionResult> GetAll()
     {
         var labels = await db.Labels
+            .Where(l => l.UserId == UserId)
             .Select(l => new { l.Id, l.Name, l.Color })
             .ToListAsync();
         return Ok(labels);
@@ -30,7 +36,8 @@ public class LabelsController(AppDbContext db) : ControllerBase
         var label = new Label
         {
             Name = name,
-            Color = request.Color ?? "#6366f1"
+            Color = request.Color ?? "#6366f1",
+            UserId = UserId
         };
 
         db.Labels.Add(label);
@@ -42,7 +49,7 @@ public class LabelsController(AppDbContext db) : ControllerBase
     [HttpDelete("{id:int}")]
     public async Task<IActionResult> Delete(int id)
     {
-        var label = await db.Labels.FindAsync(id);
+        var label = await db.Labels.FirstOrDefaultAsync(l => l.Id == id && l.UserId == UserId);
         if (label == null) return NotFound();
 
         db.Labels.Remove(label);

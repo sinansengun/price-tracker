@@ -1,4 +1,6 @@
+using System.Security.Claims;
 using Hangfire;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using PriceTracker.Data;
@@ -9,60 +11,81 @@ namespace PriceTracker.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[Authorize]
 public class ProductsController(
     AppDbContext db,
     IBackgroundJobClient jobClient) : ControllerBase
 {
+    private string UserId => User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+
     // GET api/products
     [HttpGet]
     public async Task<IActionResult> GetAll()
     {
-        var products = await db.Products
-            .Include(p => p.Labels)
-            .OrderByDescending(p => p.CreatedAt)
-            .Select(p => new
+        var products = await db.UserProducts
+            .Where(up => up.UserId == UserId)
+            .Include(up => up.Product).ThenInclude(p => p.PriceHistories)
+            .Include(up => up.Labels)
+            .OrderByDescending(up => up.AddedAt)
+            .Select(up => new
             {
-                p.Id,
-                p.Name,
-                p.Url,
-                p.ImageUrl,
-                p.Store,
-                p.InitialPrice,
-                p.CurrentPrice,
-                p.TargetPrice,
-                p.LastCheckedAt,
-                p.CreatedAt,
-                Labels = p.Labels.Select(l => new { l.Id, l.Name, l.Color }),
-                PriceHistories = p.PriceHistories
-                    .OrderBy(h => h.CheckedAt)
-                    .Select(h => new { h.Price, h.CheckedAt })
+                up.Id,
+                up.TargetPrice,
+                up.AddedAt,
+                Product = new
+                {
+                    up.Product.Id,
+                    up.Product.Name,
+                    up.Product.Url,
+                    up.Product.ImageUrl,
+                    up.Product.Store,
+                    up.Product.InitialPrice,
+                    up.Product.CurrentPrice,
+                    up.Product.LastCheckedAt,
+                    up.Product.CreatedAt
+                },
+                Labels = up.Labels.Select(l => new { l.Id, l.Name, l.Color })
             })
             .ToListAsync();
 
         return Ok(products);
     }
 
-    // GET api/products/{id}
+    // GET api/products/{id}  — id: UserProduct.Id
     [HttpGet("{id:int}")]
     public async Task<IActionResult> GetById(int id)
     {
-        var product = await db.Products
-            .Include(p => p.Labels)
-            .Where(p => p.Id == id)
-            .Select(p => new
+        var up = await db.UserProducts
+            .Where(up => up.Id == id && up.UserId == UserId)
+            .Include(up => up.Product).ThenInclude(p => p.PriceHistories.OrderByDescending(h => h.CheckedAt).Take(50))
+            .Include(up => up.Labels)
+            .Select(up => new
             {
-                p.Id, p.Name, p.Url, p.ImageUrl, p.Store,
-                p.InitialPrice, p.CurrentPrice, p.TargetPrice, p.LastCheckedAt, p.CreatedAt,
-                Labels = p.Labels.Select(l => new { l.Id, l.Name, l.Color }),
-                PriceHistories = p.PriceHistories
-                    .OrderByDescending(h => h.CheckedAt)
-                    .Take(50)
-                    .Select(h => new { h.Price, h.CheckedAt })
+                up.Id,
+                up.TargetPrice,
+                up.AddedAt,
+                Product = new
+                {
+                    up.Product.Id,
+                    up.Product.Name,
+                    up.Product.Url,
+                    up.Product.ImageUrl,
+                    up.Product.Store,
+                    up.Product.InitialPrice,
+                    up.Product.CurrentPrice,
+                    up.Product.LastCheckedAt,
+                    up.Product.CreatedAt,
+                    PriceHistories = up.Product.PriceHistories
+                        .OrderByDescending(h => h.CheckedAt)
+                        .Take(50)
+                        .Select(h => new { h.Price, h.CheckedAt })
+                },
+                Labels = up.Labels.Select(l => new { l.Id, l.Name, l.Color })
             })
             .FirstOrDefaultAsync();
 
-        if (product == null) return NotFound();
-        return Ok(product);
+        if (up == null) return NotFound();
+        return Ok(up);
     }
 
     // POST api/products
@@ -75,31 +98,59 @@ public class ProductsController(
              !url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)))
             return BadRequest(new { error = "Geçersiz URL. http:// veya https:// ile başlamalıdır." });
 
-        var product = new Product
+        // URL'e göre mevcut ürünü bul ya da yeni oluştur (benzersizlik burada sağlanıyor)
+        var product = await db.Products.FirstOrDefaultAsync(p => p.Url == url);
+        if (product == null)
         {
-            Url = url,
-            Name = request.Name ?? string.Empty,
+            product = new Product
+            {
+                Url = url,
+                Name = request.Name ?? string.Empty
+            };
+            db.Products.Add(product);
+            await db.SaveChangesAsync();
+
+            // İlk fiyat çekimi
+            jobClient.Enqueue<PriceCheckJob>(j => j.CheckProductAsync(product.Id));
+        }
+
+        // Kullanıcı bu ürünü zaten takip ediyor mu?
+        var existing = await db.UserProducts
+            .FirstOrDefaultAsync(up => up.UserId == UserId && up.ProductId == product.Id);
+        if (existing != null)
+            return Conflict(new { error = "Bu ürünü zaten takip ediyorsunuz.", id = existing.Id });
+
+        var userProduct = new UserProduct
+        {
+            UserId = UserId,
+            ProductId = product.Id,
             TargetPrice = request.TargetPrice
         };
-
-        db.Products.Add(product);
+        db.UserProducts.Add(userProduct);
         await db.SaveChangesAsync();
 
-        // İlk fiyat çekimi için arka planda job başlat
-        jobClient.Enqueue<PriceCheckJob>(j => j.CheckProductAsync(product.Id));
-
-        return CreatedAtAction(nameof(GetById), new { id = product.Id }, new { product.Id });
+        return CreatedAtAction(nameof(GetById), new { id = userProduct.Id }, new { id = userProduct.Id });
     }
 
-    // DELETE api/products/{id}
+    // DELETE api/products/{id}  — id: UserProduct.Id
     [HttpDelete("{id:int}")]
     public async Task<IActionResult> Delete(int id)
     {
-        var product = await db.Products.FindAsync(id);
-        if (product == null) return NotFound();
+        var up = await db.UserProducts.FirstOrDefaultAsync(up => up.Id == id && up.UserId == UserId);
+        if (up == null) return NotFound();
 
-        db.Products.Remove(product);
+        db.UserProducts.Remove(up);
         await db.SaveChangesAsync();
+
+        // Başka kullanıcı takip etmiyorsa ürünü de sil
+        var trackersLeft = await db.UserProducts.AnyAsync(x => x.ProductId == up.ProductId);
+        if (!trackersLeft)
+        {
+            var product = await db.Products.FindAsync(up.ProductId);
+            if (product != null) db.Products.Remove(product);
+            await db.SaveChangesAsync();
+        }
+
         return NoContent();
     }
 
@@ -107,44 +158,34 @@ public class ProductsController(
     [HttpPatch("{id:int}/target-price")]
     public async Task<IActionResult> UpdateTargetPrice(int id, [FromBody] UpdateTargetPriceRequest request)
     {
-        var product = await db.Products.FindAsync(id);
-        if (product == null) return NotFound();
+        var up = await db.UserProducts.FirstOrDefaultAsync(up => up.Id == id && up.UserId == UserId);
+        if (up == null) return NotFound();
 
-        product.TargetPrice = request.TargetPrice;
+        up.TargetPrice = request.TargetPrice;
         await db.SaveChangesAsync();
-        return Ok(new { product.Id, product.TargetPrice });
+        return Ok(new { up.Id, up.TargetPrice });
     }
 
     // POST api/products/{id}/check
     [HttpPost("{id:int}/check")]
     public async Task<IActionResult> ManualCheck(int id)
     {
-        var product = await db.Products.FindAsync(id);
-        if (product == null) return NotFound();
+        var up = await db.UserProducts.FirstOrDefaultAsync(up => up.Id == id && up.UserId == UserId);
+        if (up == null) return NotFound();
 
-        jobClient.Enqueue<PriceCheckJob>(j => j.CheckProductAsync(id));
+        jobClient.Enqueue<PriceCheckJob>(j => j.CheckProductAsync(up.ProductId));
         return Accepted(new { message = "Fiyat kontrolü başlatıldı" });
-    }
-
-    // GET api/products/{id}/debug-html — geçici debug endpoint
-    [HttpGet("{id:int}/debug-html")]
-    public async Task<IActionResult> DebugHtml(int id, [FromServices] ScraperService scraper)
-    {
-        var product = await db.Products.FindAsync(id);
-        if (product == null) return NotFound();
-        var snippet = await scraper.GetHtmlSnippetForDebugAsync(product.Url);
-        return Ok(new { snippet });
     }
 
     // GET api/products/{id}/history
     [HttpGet("{id:int}/history")]
     public async Task<IActionResult> GetHistory(int id)
     {
-        var exists = await db.Products.AnyAsync(p => p.Id == id);
-        if (!exists) return NotFound();
+        var up = await db.UserProducts.FirstOrDefaultAsync(up => up.Id == id && up.UserId == UserId);
+        if (up == null) return NotFound();
 
         var history = await db.PriceHistories
-            .Where(h => h.ProductId == id)
+            .Where(h => h.ProductId == up.ProductId)
             .OrderByDescending(h => h.CheckedAt)
             .Select(h => new { h.Price, h.CheckedAt })
             .ToListAsync();
@@ -156,14 +197,16 @@ public class ProductsController(
     [HttpPost("{id:int}/labels/{labelId:int}")]
     public async Task<IActionResult> AddLabel(int id, int labelId)
     {
-        var product = await db.Products.Include(p => p.Labels).FirstOrDefaultAsync(p => p.Id == id);
-        if (product == null) return NotFound(new { error = "Ürün bulunamadı." });
+        var up = await db.UserProducts
+            .Include(up => up.Labels)
+            .FirstOrDefaultAsync(up => up.Id == id && up.UserId == UserId);
+        if (up == null) return NotFound(new { error = "Ürün bulunamadı." });
 
-        var label = await db.Labels.FindAsync(labelId);
+        var label = await db.Labels.FirstOrDefaultAsync(l => l.Id == labelId && l.UserId == UserId);
         if (label == null) return NotFound(new { error = "Label bulunamadı." });
 
-        if (!product.Labels.Any(l => l.Id == labelId))
-            product.Labels.Add(label);
+        if (!up.Labels.Any(l => l.Id == labelId))
+            up.Labels.Add(label);
 
         await db.SaveChangesAsync();
         return Ok(new { label.Id, label.Name, label.Color });
@@ -173,17 +216,33 @@ public class ProductsController(
     [HttpDelete("{id:int}/labels/{labelId:int}")]
     public async Task<IActionResult> RemoveLabel(int id, int labelId)
     {
-        var product = await db.Products.Include(p => p.Labels).FirstOrDefaultAsync(p => p.Id == id);
-        if (product == null) return NotFound();
+        var up = await db.UserProducts
+            .Include(up => up.Labels)
+            .FirstOrDefaultAsync(up => up.Id == id && up.UserId == UserId);
+        if (up == null) return NotFound();
 
-        var label = product.Labels.FirstOrDefault(l => l.Id == labelId);
+        var label = up.Labels.FirstOrDefault(l => l.Id == labelId);
         if (label != null)
         {
-            product.Labels.Remove(label);
+            up.Labels.Remove(label);
             await db.SaveChangesAsync();
         }
 
         return NoContent();
+    }
+
+    // GET api/products/{id}/debug-html
+    [HttpGet("{id:int}/debug-html")]
+    public async Task<IActionResult> DebugHtml(int id, [FromServices] ScraperService scraper)
+    {
+        var up = await db.UserProducts.FirstOrDefaultAsync(up => up.Id == id && up.UserId == UserId);
+        if (up == null) return NotFound();
+
+        var product = await db.Products.FindAsync(up.ProductId);
+        if (product == null) return NotFound();
+
+        var snippet = await scraper.GetHtmlSnippetForDebugAsync(product.Url);
+        return Ok(new { snippet });
     }
 }
 

@@ -15,6 +15,7 @@ function StoreBadge({ store, url }: { store: string; url: string }) {
 import { LineChart, Line, ResponsiveContainer, Tooltip } from 'recharts'
 import {
   getProducts, getLabels, createProduct, addProductLabel, removeProductLabel, createLabel, deleteLabel,
+  clearToken, flattenProduct,
   Product, Label, PriceHistory
 } from '../api/api'
 
@@ -490,7 +491,7 @@ export default function ProductsPage() {
   const load = async () => {
     try {
       const [prodRes, lblRes] = await Promise.all([getProducts(), getLabels()])
-      setProducts(prodRes.data)
+      setProducts(prodRes.data.map(flattenProduct))
       setLabels(lblRes.data)
     } finally {
       setLoading(false)
@@ -505,6 +506,13 @@ export default function ProductsPage() {
 
   const handleNewLabel = (label: Label) => {
     setLabels(prev => [...prev, label])
+  }
+
+  const navigate = useNavigate()
+
+  const handleLogout = () => {
+    clearToken()
+    navigate('/login')
   }
 
   const filtered = activeLabel == null
@@ -532,6 +540,13 @@ export default function ProductsPage() {
                 className={`px-3 py-2 text-sm transition-colors ${view === 'grid' ? 'bg-brand-600 text-white' : 'text-gray-500 hover:bg-gray-50'}`}
               >⊞</button>
             </div>
+            <button
+              onClick={handleLogout}
+              className="text-sm text-gray-500 hover:text-gray-800 px-3 py-2 rounded-xl hover:bg-gray-100 transition-colors"
+              title="Çıkış Yap"
+            >
+              Çıkış
+            </button>
             <button
               onClick={() => setShowModal(true)}
               className="bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2 rounded-xl transition-colors"
