@@ -6,10 +6,12 @@ import '../models/product.dart';
 
 class ProductsProvider extends ChangeNotifier {
   List<UserProduct> _products = [];
+  List<Label> _labels = [];
   bool _loading = false;
   String? _error;
 
   List<UserProduct> get products => _products;
+  List<Label> get labels => _labels;
   bool get loading => _loading;
   String? get error => _error;
 
@@ -19,17 +21,25 @@ class ProductsProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final res = await http.get(
-        ApiClient.uri('/products'),
-        headers: ApiClient.headers,
-      );
-      if (res.statusCode == 200) {
-        final list = jsonDecode(res.body) as List<dynamic>;
+      final results = await Future.wait([
+        http.get(ApiClient.uri('/products'), headers: ApiClient.headers),
+        http.get(ApiClient.uri('/labels'), headers: ApiClient.headers),
+      ]);
+      final productsRes = results[0];
+      final labelsRes = results[1];
+      if (productsRes.statusCode == 200) {
+        final list = jsonDecode(productsRes.body) as List<dynamic>;
         _products = list
             .map((e) => UserProduct.fromJson(e as Map<String, dynamic>))
             .toList();
       } else {
         _error = 'Ürünler yüklenemedi.';
+      }
+      if (labelsRes.statusCode == 200) {
+        final list = jsonDecode(labelsRes.body) as List<dynamic>;
+        _labels = list
+            .map((e) => Label.fromJson(e as Map<String, dynamic>))
+            .toList();
       }
     } catch (_) {
       _error = 'Sunucuya bağlanılamadı.';
@@ -113,5 +123,93 @@ class ProductsProvider extends ChangeNotifier {
         headers: ApiClient.headers,
       );
     } catch (_) {}
+  }
+
+  // ── Label methods ──────────────────────────────────────────────
+
+  Future<Label?> createLabel(String name, String color) async {
+    try {
+      final res = await http.post(
+        ApiClient.uri('/labels'),
+        headers: ApiClient.headers,
+        body: jsonEncode({'name': name, 'color': color}),
+      );
+      if (res.statusCode == 201) {
+        final label = Label.fromJson(jsonDecode(res.body) as Map<String, dynamic>);
+        _labels = [..._labels, label];
+        notifyListeners();
+        return label;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Future<void> deleteLabel(int id) async {
+    try {
+      await http.delete(ApiClient.uri('/labels/$id'), headers: ApiClient.headers);
+      _labels = _labels.where((l) => l.id != id).toList();
+      // Remove from all products
+      _products = _products.map((up) {
+        final newLabels = up.labels.where((l) => l.id != id).toList();
+        return UserProduct(
+          id: up.id,
+          targetPrice: up.targetPrice,
+          addedAt: up.addedAt,
+          product: up.product,
+          labels: newLabels,
+        );
+      }).toList();
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  Future<bool> addProductLabel(int productId, int labelId) async {
+    try {
+      final res = await http.post(
+        ApiClient.uri('/products/$productId/labels/$labelId'),
+        headers: ApiClient.headers,
+      );
+      if (res.statusCode == 200 || res.statusCode == 204) {
+        _updateProductLabels(
+            productId, [..._productById(productId)!.labels, _labelById(labelId)!]);
+        return true;
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  Future<bool> removeProductLabel(int productId, int labelId) async {
+    try {
+      final res = await http.delete(
+        ApiClient.uri('/products/$productId/labels/$labelId'),
+        headers: ApiClient.headers,
+      );
+      if (res.statusCode == 200 || res.statusCode == 204) {
+        _updateProductLabels(productId,
+            _productById(productId)!.labels.where((l) => l.id != labelId).toList());
+        return true;
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  UserProduct? _productById(int id) =>
+      _products.cast<UserProduct?>().firstWhere((p) => p?.id == id, orElse: () => null);
+
+  Label? _labelById(int id) =>
+      _labels.cast<Label?>().firstWhere((l) => l?.id == id, orElse: () => null);
+
+  void _updateProductLabels(int productId, List<Label> newLabels) {
+    _products = _products.map((up) {
+      if (up.id != productId) return up;
+      return UserProduct(
+        id: up.id,
+        targetPrice: up.targetPrice,
+        addedAt: up.addedAt,
+        product: up.product,
+        labels: newLabels,
+      );
+    }).toList();
+    notifyListeners();
   }
 }

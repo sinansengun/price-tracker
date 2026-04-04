@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../models/product.dart';
 import '../providers/products_provider.dart';
+import 'label_sheet.dart';
 
 class ProductDetailScreen extends StatefulWidget {
   final int userProductId;
@@ -48,6 +49,11 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
             ? _up!.product.name
             : 'Ürün Detay'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.delete_outline),
+            tooltip: 'Ürünü Kaldır',
+            onPressed: _up == null ? null : () => _confirmDelete(context),
+          ),
           IconButton(
             icon: _checkLoading
                 ? const SizedBox(
@@ -137,6 +143,74 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
         ),
         const SizedBox(height: 12),
 
+        // Etiketler
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.label_outline, size: 18),
+                    const SizedBox(width: 6),
+                    Text('Etiketler',
+                        style: Theme.of(context).textTheme.titleSmall),
+                    const Spacer(),
+                    TextButton.icon(
+                      onPressed: () => _showLabelSheet(context, up),
+                      icon: const Icon(Icons.add, size: 16),
+                      label: const Text('Yönet', style: TextStyle(fontSize: 12)),
+                      style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 4),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+                    ),
+                  ],
+                ),
+                if (up.labels.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 6),
+                    child: Text('Henüz etiket eklenmedi.',
+                        style: TextStyle(fontSize: 12, color: Colors.grey)),
+                  )
+                else
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: up.labels.map((l) {
+                        final c = hexColor(l.color) ?? Colors.indigo;
+                        return Chip(
+                          label: Text(l.name,
+                              style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: c)),
+                          backgroundColor: c.withValues(alpha: 0.12),
+                          side: BorderSide.none,
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          materialTapTargetSize:
+                              MaterialTapTargetSize.shrinkWrap,
+                          deleteIcon:
+                              Icon(Icons.close, size: 14, color: c),
+                          onDeleted: () async {
+                            final p = context.read<ProductsProvider>();
+                            await p.removeProductLabel(up.id, l.id);
+                            await _load();
+                          },
+                        );
+                      }).toList(),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+
         // Hedef fiyat güncelle
         Card(
           child: ListTile(
@@ -175,6 +249,40 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
               )),
         ],
       ],
+    );
+  }
+
+  void _showLabelSheet(BuildContext context, UserProduct up) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => LabelSheet(userProductId: up.id),
+    );
+  }
+
+  void _confirmDelete(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Ürünü Kaldır'),
+        content: const Text(
+            'Bu ürünü takip listenizden kaldırmak istediğinizden emin misiniz?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('İptal')),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              final provider = context.read<ProductsProvider>();
+              await provider.deleteProduct(widget.userProductId);
+              if (mounted) Navigator.pop(context);
+            },
+            child: const Text('Kaldır',
+                style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
     );
   }
 

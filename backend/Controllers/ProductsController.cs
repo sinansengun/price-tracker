@@ -42,7 +42,11 @@ public class ProductsController(
                     up.Product.InitialPrice,
                     up.Product.CurrentPrice,
                     up.Product.LastCheckedAt,
-                    up.Product.CreatedAt
+                    up.Product.CreatedAt,
+                    PriceHistories = up.Product.PriceHistories
+                        .OrderByDescending(h => h.CheckedAt)
+                        .Take(30)
+                        .Select(h => new { h.Price, h.CheckedAt })
                 },
                 Labels = up.Labels.Select(l => new { l.Id, l.Name, l.Color })
             })

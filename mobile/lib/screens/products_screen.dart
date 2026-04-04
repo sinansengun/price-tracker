@@ -1,19 +1,32 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:fl_chart/fl_chart.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../models/product.dart';
 import '../providers/auth_provider.dart';
 import '../providers/products_provider.dart';
+import 'label_sheet.dart';
 
 class ProductsScreen extends StatefulWidget {
   const ProductsScreen({super.key});
 
   @override
-  State<ProductsScreen> createState() => _ProductsScreenState();
+  State<ProductsScreen> createState() => ProductsScreenState();
 }
 
-class _ProductsScreenState extends State<ProductsScreen> {
+class ProductsScreenState extends State<ProductsScreen> {
+  int? _filterLabelId;
+
+  void openAddSheet({String? initialUrl}) {
+    if (!mounted) return;
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => _AddProductSheet(initialUrl: initialUrl),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -25,6 +38,13 @@ class _ProductsScreenState extends State<ProductsScreen> {
   Widget build(BuildContext context) {
     final products = context.watch<ProductsProvider>();
     final auth = context.read<AuthProvider>();
+
+    final allLabels = products.labels;
+    final filtered = _filterLabelId == null
+        ? products.products
+        : products.products
+            .where((up) => up.labels.any((l) => l.id == _filterLabelId))
+            .toList();
 
     return Scaffold(
       appBar: AppBar(
@@ -55,18 +75,118 @@ class _ProductsScreenState extends State<ProductsScreen> {
                     ],
                   ),
                 )
-              : products.products.isEmpty
-                  ? const Center(child: Text('Henüz ürün eklenmedi.'))
-                  : RefreshIndicator(
-                      onRefresh: products.fetchAll,
-                      child: ListView.separated(
-                        padding: const EdgeInsets.all(12),
-                        itemCount: products.products.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 8),
-                        itemBuilder: (ctx, i) =>
-                            _ProductCard(up: products.products[i]),
+              : Column(
+                  children: [
+                    // Label filtre şeridi
+                    if (allLabels.isNotEmpty)
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+                        child: Row(
+                          children: [
+                            FilterChip(
+                              label: const Text('Tümü'),
+                              selected: _filterLabelId == null,
+                              onSelected: (_) =>
+                                  setState(() => _filterLabelId = null),
+                            ),
+                            const SizedBox(width: 6),
+                            ...allLabels.map((l) {
+                              final color =
+                                  hexColor(l.color) ?? Colors.indigo;
+                              final selected = _filterLabelId == l.id;
+                              return Padding(
+                                padding: const EdgeInsets.only(right: 6),
+                                child: FilterChip(
+                                  label: Text(l.name),
+                                  selected: selected,
+                                  selectedColor: color.withValues(alpha: 0.2),
+                                  checkmarkColor: color,
+                                  labelStyle: TextStyle(
+                                      color: selected ? color : null,
+                                      fontSize: 12),
+                                  side: BorderSide(
+                                      color: selected
+                                          ? color
+                                          : Colors.grey.shade300),
+                                  onSelected: (_) => setState(() =>
+                                      _filterLabelId =
+                                          selected ? null : l.id),
+                                ),
+                              );
+                            }),
+                          ],
+                        ),
                       ),
+                    Expanded(
+                      child: filtered.isEmpty
+                          ? const Center(child: Text('Henüz ürün eklenmedi.'))
+                          : RefreshIndicator(
+                              onRefresh: products.fetchAll,
+                              child: ListView.separated(
+                                padding: const EdgeInsets.all(12),
+                                itemCount: filtered.length,
+                                separatorBuilder: (_, __) =>
+                                    const SizedBox(height: 8),
+                                itemBuilder: (ctx, i) {
+                                  final up = filtered[i];
+                                  return Dismissible(
+                                    key: Key('product_${up.id}'),
+                                    direction: DismissDirection.endToStart,
+                                    background: Container(
+                                      alignment: Alignment.centerRight,
+                                      padding:
+                                          const EdgeInsets.only(right: 24),
+                                      decoration: BoxDecoration(
+                                        color: Colors.red,
+                                        borderRadius:
+                                            BorderRadius.circular(12),
+                                      ),
+                                      child: const Icon(
+                                          Icons.delete_outline,
+                                          color: Colors.white,
+                                          size: 28),
+                                    ),
+                                    confirmDismiss: (_) async {
+                                      return await showDialog<bool>(
+                                            context: ctx,
+                                            builder: (_) => AlertDialog(
+                                              title:
+                                                  const Text('Ürünü Kaldır'),
+                                              content: const Text(
+                                                  'Bu ürünü takip listenizden kaldırmak istediğinizden emin misiniz?'),
+                                              actions: [
+                                                TextButton(
+                                                    onPressed: () =>
+                                                        Navigator.pop(
+                                                            ctx, false),
+                                                    child: const Text(
+                                                        'İptal')),
+                                                TextButton(
+                                                  onPressed: () =>
+                                                      Navigator.pop(
+                                                          ctx, true),
+                                                  child: const Text(
+                                                      'Kaldır',
+                                                      style: TextStyle(
+                                                          color: Colors.red)),
+                                                ),
+                                              ],
+                                            ),
+                                          ) ??
+                                          false;
+                                    },
+                                    onDismissed: (_) => ctx
+                                        .read<ProductsProvider>()
+                                        .deleteProduct(up.id),
+                                    child: _ProductCard(up: up),
+                                  );
+                                },
+                              ),
+                            ),
                     ),
+                  ],
+                ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _showAddDialog(context),
         icon: const Icon(Icons.add),
@@ -76,11 +196,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
   }
 
   void _showAddDialog(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (_) => const _AddProductSheet(),
-    );
+    openAddSheet();
   }
 }
 
@@ -109,7 +225,7 @@ class _ProductCard extends StatelessWidget {
                 borderRadius: BorderRadius.circular(8),
                 child: p.imageUrl != null
                     ? Image.network(p.imageUrl!,
-                        width: 90, height: 90, fit: BoxFit.cover,
+                        width: 72, height: 72, fit: BoxFit.cover,
                         errorBuilder: (_, __, ___) =>
                             const _PlaceholderImage())
                     : const _PlaceholderImage(),
@@ -122,11 +238,11 @@ class _ProductCard extends StatelessWidget {
                     Text(p.name.isEmpty ? p.url : p.name,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontWeight: FontWeight.w600)),
+                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
                     if (p.store != null)
                       Text(p.store!,
                           style: TextStyle(
-                              fontSize: 12, color: cs.onSurface.withOpacity(.6))),
+                              fontSize: 11, color: cs.onSurface.withValues(alpha: 0.55))),
                     const SizedBox(height: 4),
                     Row(
                       children: [
@@ -135,7 +251,7 @@ class _ProductCard extends StatelessWidget {
                               ? '₺${p.currentPrice!.toStringAsFixed(2)}'
                               : '—',
                           style: TextStyle(
-                              fontSize: 16,
+                              fontSize: 15,
                               fontWeight: FontWeight.bold,
                               color: isPriceDrop ? Colors.green : null),
                         ),
@@ -144,19 +260,54 @@ class _ProductCard extends StatelessWidget {
                           Text(
                             'Hedef: ₺${up.targetPrice!.toStringAsFixed(2)}',
                             style: TextStyle(
-                                fontSize: 12,
-                                color: cs.onSurface.withOpacity(.6)),
+                                fontSize: 11,
+                                color: cs.onSurface.withValues(alpha: 0.55)),
                           ),
                         ],
                       ],
                     ),
+                    // Label chips
+                    if (up.labels.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Wrap(
+                        spacing: 4,
+                        runSpacing: 2,
+                        children: up.labels.map((l) {
+                          final c = hexColor(l.color) ?? Colors.indigo;
+                          return Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: c.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(l.name,
+                                style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w600,
+                                    color: c)),
+                          );
+                        }).toList(),
+                      ),
+                    ],
+                    const SizedBox(height: 2),
+                    // "+ Etiket" butonu
+                    GestureDetector(
+                      onTap: () => _showLabelSheet(context),
+                      child: Text('+ Etiket',
+                          style: TextStyle(
+                              fontSize: 11,
+                              color: cs.onSurface.withValues(alpha: 0.4))),
+                    ),
                   ],
                 ),
               ),
-              IconButton(
-                icon: const Icon(Icons.delete_outline),
-                onPressed: () => _confirmDelete(context),
-              ),
+              // Mini grafik
+              if (p.priceHistories.length >= 2)
+                Padding(
+                  padding: const EdgeInsets.only(left: 8),
+                  child: _MiniChart(histories: p.priceHistories),
+                ),
             ],
           ),
         ),
@@ -164,24 +315,65 @@ class _ProductCard extends StatelessWidget {
     );
   }
 
-  void _confirmDelete(BuildContext context) {
-    showDialog(
+  void _showLabelSheet(BuildContext context) {
+    showModalBottomSheet(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Ürünü Kaldır'),
-        content: const Text('Bu ürünü takip listenizden kaldırmak istediğinizden emin misiniz?'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('İptal')),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              context.read<ProductsProvider>().deleteProduct(up.id);
-            },
-            child: const Text('Kaldır', style: TextStyle(color: Colors.red)),
-          ),
-        ],
+      isScrollControlled: true,
+      builder: (_) => LabelSheet(userProductId: up.id),
+    );
+  }
+}
+
+class _MiniChart extends StatelessWidget {
+  final List<PricePoint> histories;
+  const _MiniChart({required this.histories});
+
+  @override
+  Widget build(BuildContext context) {
+    final sorted = [...histories]
+      ..sort((a, b) => a.checkedAt.compareTo(b.checkedAt));
+    final prices = sorted.map((h) => h.price).toList();
+    final minP = prices.reduce((a, b) => a < b ? a : b);
+    final maxP = prices.reduce((a, b) => a > b ? a : b);
+    final flat = minP == maxP;
+    final isDown = prices.last < prices.first;
+    final color = flat
+        ? Colors.grey
+        : isDown
+            ? Colors.green
+            : Colors.red;
+
+    final spots = sorted
+        .asMap()
+        .entries
+        .map((e) => FlSpot(e.key.toDouble(), e.value.price))
+        .toList();
+
+    return SizedBox(
+      width: 72,
+      height: 44,
+      child: LineChart(
+        LineChartData(
+          minY: flat ? minP - 1 : minP,
+          maxY: flat ? maxP + 1 : maxP,
+          lineBarsData: [
+            LineChartBarData(
+              spots: spots,
+              isCurved: true,
+              color: color,
+              barWidth: 2,
+              dotData: const FlDotData(show: false),
+              belowBarData: BarAreaData(
+                show: true,
+                color: color.withValues(alpha: 0.1),
+              ),
+            ),
+          ],
+          titlesData: const FlTitlesData(show: false),
+          gridData: const FlGridData(show: false),
+          borderData: FlBorderData(show: false),
+          lineTouchData: const LineTouchData(enabled: false),
+        ),
       ),
     );
   }
@@ -202,7 +394,8 @@ class _PlaceholderImage extends StatelessWidget {
 }
 
 class _AddProductSheet extends StatefulWidget {
-  const _AddProductSheet();
+  final String? initialUrl;
+  const _AddProductSheet({this.initialUrl});
 
   @override
   State<_AddProductSheet> createState() => _AddProductSheetState();
@@ -214,6 +407,28 @@ class _AddProductSheetState extends State<_AddProductSheet> {
   final _targetCtrl = TextEditingController();
   bool _loading = false;
   String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.initialUrl != null && widget.initialUrl!.isNotEmpty) {
+      _urlCtrl.text = widget.initialUrl!;
+    } else {
+      _autoPasteUrl();
+    }
+  }
+
+  Future<void> _autoPasteUrl() async {
+    try {
+      final data = await Clipboard.getData(Clipboard.kTextPlain);
+      final text = data?.text?.trim() ?? '';
+      if (text.startsWith('http') && _urlCtrl.text.isEmpty) {
+        _urlCtrl.text = text;
+        _urlCtrl.selection = TextSelection.fromPosition(
+            TextPosition(offset: _urlCtrl.text.length));
+      }
+    } catch (_) {}
+  }
 
   @override
   void dispose() {
@@ -281,12 +496,15 @@ class _AddProductSheetState extends State<_AddProductSheet> {
                   icon: const Icon(Icons.content_paste),
                   tooltip: 'Panodan Yapıştır',
                   onPressed: () async {
-                    final data = await Clipboard.getData(Clipboard.kTextPlain);
-                    if (data?.text != null) {
-                      _urlCtrl.text = data!.text!.trim();
-                      _urlCtrl.selection = TextSelection.fromPosition(
-                          TextPosition(offset: _urlCtrl.text.length));
-                    }
+                    try {
+                      final data =
+                          await Clipboard.getData(Clipboard.kTextPlain);
+                      if (data?.text != null) {
+                        _urlCtrl.text = data!.text!.trim();
+                        _urlCtrl.selection = TextSelection.fromPosition(
+                            TextPosition(offset: _urlCtrl.text.length));
+                      }
+                    } catch (_) {}
                   },
                 ),
               ),
