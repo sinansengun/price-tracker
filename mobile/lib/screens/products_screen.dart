@@ -86,6 +86,7 @@ class ProductsScreenState extends State<ProductsScreen> {
                           children: [
                             FilterChip(
                               label: const Text('Tümü'),
+                              labelStyle: const TextStyle(fontSize: 12),
                               selected: _filterLabelId == null,
                               onSelected: (_) =>
                                   setState(() => _filterLabelId = null),
@@ -221,14 +222,18 @@ class _ProductCard extends StatelessWidget {
           child: Row(
             children: [
               // Ürün resmi
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: p.imageUrl != null
-                    ? Image.network(p.imageUrl!,
-                        width: 72, height: 72, fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) =>
-                            const _PlaceholderImage())
-                    : const _PlaceholderImage(),
+              SizedBox(
+                width: 90,
+                height: 90,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: p.imageUrl != null
+                      ? Image.network(p.imageUrl!,
+                          width: 90, height: 90, fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) =>
+                              const _PlaceholderImage())
+                      : const _PlaceholderImage(),
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -239,26 +244,27 @@ class _ProductCard extends StatelessWidget {
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                    if (p.store != null)
-                      Text(p.store!,
-                          style: TextStyle(
-                              fontSize: 11, color: cs.onSurface.withValues(alpha: 0.55))),
+                    if (p.store != null) ...[
+                      const SizedBox(height: 2),
+                      StoreBadge(store: p.store!, url: p.url),
+                    ],
                     const SizedBox(height: 4),
                     Row(
                       children: [
-                        Text(
-                          p.currentPrice != null
-                              ? '₺${p.currentPrice!.toStringAsFixed(2)}'
-                              : '—',
-                          style: TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.bold,
-                              color: isPriceDrop ? Colors.green : null),
-                        ),
+                        if (p.currentPrice != null)
+                          PriceText(
+                            value: p.currentPrice!,
+                            fontSize: 15,
+                            color: isPriceDrop ? Colors.green : null,
+                          )
+                        else
+                          const Text('—',
+                              style: TextStyle(
+                                  fontSize: 15, fontWeight: FontWeight.bold)),
                         if (up.targetPrice != null) ...[
                           const SizedBox(width: 8),
                           Text(
-                            'Hedef: ₺${up.targetPrice!.toStringAsFixed(2)}',
+                            'Hedef: ${fmtPrice(up.targetPrice!)} ₺',
                             style: TextStyle(
                                 fontSize: 11,
                                 color: cs.onSurface.withValues(alpha: 0.55)),
@@ -266,6 +272,17 @@ class _ProductCard extends StatelessWidget {
                         ],
                       ],
                     ),
+                    if (p.initialPrice != null &&
+                        p.currentPrice != null &&
+                        p.initialPrice != p.currentPrice)
+                      Text(
+                        '${fmtPrice(p.initialPrice!)} ₺',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: cs.onSurface.withValues(alpha: 0.4),
+                          decoration: TextDecoration.lineThrough,
+                        ),
+                      ),
                     // Label chips
                     if (up.labels.isNotEmpty) ...[
                       const SizedBox(height: 4),
@@ -302,11 +319,11 @@ class _ProductCard extends StatelessWidget {
                   ],
                 ),
               ),
-              // Mini grafik
+              // Mini grafik + değişim oranı
               if (p.priceHistories.length >= 2)
                 Padding(
                   padding: const EdgeInsets.only(left: 8),
-                  child: _MiniChart(histories: p.priceHistories),
+                  child: _MiniChartWithPct(histories: p.priceHistories),
                 ),
             ],
           ),
@@ -375,6 +392,76 @@ class _MiniChart extends StatelessWidget {
           lineTouchData: const LineTouchData(enabled: false),
         ),
       ),
+    );
+  }
+}
+
+class _MiniChartWithPct extends StatelessWidget {
+  final List<PricePoint> histories;
+  const _MiniChartWithPct({required this.histories});
+
+  @override
+  Widget build(BuildContext context) {
+    final sorted = [...histories]
+      ..sort((a, b) => a.checkedAt.compareTo(b.checkedAt));
+    final first = sorted.first;
+    final last = sorted.last;
+    final prices = sorted.map((h) => h.price).toList();
+    final flat = prices.reduce((a, b) => a < b ? a : b) ==
+        prices.reduce((a, b) => a > b ? a : b);
+    final isDown = last.price < first.price;
+    final color = flat
+        ? Colors.grey
+        : isDown
+            ? Colors.green
+            : Colors.red;
+
+    // Yüzde değişim
+    double? pct;
+    if (first.price > 0) {
+      pct = ((last.price - first.price) / first.price) * 100;
+    }
+
+    // Dönem etiketi
+    String periodLabel = '';
+    final days = last.checkedAt.difference(first.checkedAt).inDays;
+    if (days < 2) {
+      periodLabel = 'Son 1 gün';
+    } else if (days < 31) {
+      periodLabel = 'Son $days gün';
+    } else if (days < 365) {
+      periodLabel = 'Son ${(days / 30).round()} ay';
+    } else {
+      periodLabel = 'Son ${(days / 365).round()} yıl';
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (pct != null)
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Text(
+                periodLabel,
+                style: TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w500,
+                    color: color),
+              ),
+              Text(
+                '${isDown ? '▼' : flat ? '—' : '▲'} %${pct.abs().toStringAsFixed(1)}',
+                style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: color),
+              ),
+            ],
+          ),
+        const SizedBox(height: 2),
+        _MiniChart(histories: histories),
+      ],
     );
   }
 }

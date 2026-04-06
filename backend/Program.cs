@@ -115,10 +115,10 @@ app.MapControllers();
 if (app.Environment.IsDevelopment())
     app.UseHangfireDashboard("/hangfire");
 
-// Her 6 saatte bir tüm ürünlerin fiyatını kontrol et
+// Her 5 dakikada bir tüm ürünlerin fiyatını kontrol et
 RecurringJob.AddOrUpdate<PriceCheckJob>(
     "check-all-prices",
     job => job.CheckAllProductsAsync(),
-    "0 */6 * * *");
+    "*/5 * * * *");
 
 await app.RunAsync();

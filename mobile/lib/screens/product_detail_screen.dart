@@ -108,9 +108,8 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                     style: const TextStyle(
                         fontSize: 16, fontWeight: FontWeight.w600)),
                 if (p.store != null) ...[
-                  const SizedBox(height: 4),
-                  Text(p.store!,
-                      style: TextStyle(color: cs.onSurface.withOpacity(.6))),
+                  const SizedBox(height: 6),
+                  StoreBadge(store: p.store!, url: p.url),
                 ],
                 const SizedBox(height: 16),
                 Row(
@@ -243,7 +242,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
           const SizedBox(height: 8),
           ...p.priceHistories.take(20).map((h) => ListTile(
                 dense: true,
-                title: Text('₺${h.price.toStringAsFixed(2)}'),
+                title: Text('${fmtPrice(h.price)} ₺'),
                 subtitle: Text(
                     DateFormat('dd.MM.yyyy HH:mm').format(h.checkedAt)),
               )),
@@ -343,13 +342,12 @@ class _PriceTile extends StatelessWidget {
                   fontSize: 11,
                   color: Theme.of(context).colorScheme.onSurface.withOpacity(.6))),
           const SizedBox(height: 2),
-          Text(
-            value != null ? '₺${value!.toStringAsFixed(2)}' : '—',
-            style: TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.bold,
-                color: color),
-          ),
+          if (value != null)
+            PriceText(value: value!, fontSize: 15, color: color)
+          else
+            const Text('—',
+                style: TextStyle(
+                    fontSize: 15, fontWeight: FontWeight.bold)),
         ],
       ),
     );
@@ -363,7 +361,7 @@ class _PriceChart extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // En son 30 veri noktasını göster (eski → yeni)
-    final data = histories.reversed.take(30).toList().reversed.toList();
+    final data = histories.reversed.toList();
     if (data.isEmpty) return const SizedBox.shrink();
 
     final spots = data.asMap().entries.map((e) {
@@ -374,26 +372,60 @@ class _PriceChart extends StatelessWidget {
     final maxY = data.map((h) => h.price).reduce((a, b) => a > b ? a : b);
     final padding = (maxY - minY) * 0.1 + 1;
 
+    // X ekseni için gösterilecek indeksler (max 4 etiket)
+    final step = (data.length / 4).ceil().clamp(1, data.length);
+    final labelIndices = <int>{};
+    for (int i = 0; i < data.length; i += step) {
+      labelIndices.add(i);
+    }
+    labelIndices.add(data.length - 1);
+
     return LineChart(
       LineChartData(
         minY: minY - padding,
         maxY: maxY + padding,
-        gridData: const FlGridData(show: true),
+        gridData: FlGridData(
+          show: true,
+          drawVerticalLine: false,
+          getDrawingHorizontalLine: (_) =>
+              FlLine(color: Colors.grey.shade100, strokeWidth: 1),
+        ),
         borderData: FlBorderData(show: false),
         titlesData: FlTitlesData(
           topTitles:
               const AxisTitles(sideTitles: SideTitles(showTitles: false)),
           rightTitles:
               const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          bottomTitles:
-              const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 28,
+              getTitlesWidget: (v, meta) {
+                final idx = v.toInt();
+                if (!labelIndices.contains(idx) ||
+                    idx < 0 ||
+                    idx >= data.length) {
+                  return const SizedBox.shrink();
+                }
+                return Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    DateFormat('dd.MM').format(data[idx].checkedAt),
+                    style: const TextStyle(
+                        fontSize: 9, color: Color(0xFF9CA3AF)),
+                  ),
+                );
+              },
+            ),
+          ),
           leftTitles: AxisTitles(
             sideTitles: SideTitles(
               showTitles: true,
-              reservedSize: 52,
+              reservedSize: 62,
               getTitlesWidget: (v, _) => Text(
-                '₺${v.toInt()}',
-                style: const TextStyle(fontSize: 10),
+                fmtPrice(v),
+                style: const TextStyle(
+                    fontSize: 9, color: Color(0xFF9CA3AF)),
               ),
             ),
           ),
@@ -404,10 +436,19 @@ class _PriceChart extends StatelessWidget {
             isCurved: true,
             color: Theme.of(context).colorScheme.primary,
             barWidth: 2.5,
-            dotData: const FlDotData(show: false),
+            dotData: FlDotData(
+              show: true,
+              getDotPainter: (spot, pct, bar, idx) =>
+                  FlDotCirclePainter(
+                    radius: 3,
+                    color: Theme.of(context).colorScheme.primary,
+                    strokeWidth: 0,
+                    strokeColor: Colors.transparent,
+                  ),
+            ),
             belowBarData: BarAreaData(
               show: true,
-              color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+              color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.08),
             ),
           ),
         ],
@@ -415,7 +456,7 @@ class _PriceChart extends StatelessWidget {
           touchTooltipData: LineTouchTooltipData(
             getTooltipItems: (spots) => spots
                 .map((s) => LineTooltipItem(
-                      '₺${s.y.toStringAsFixed(2)}\n${DateFormat('dd.MM HH:mm').format(data[s.x.toInt()].checkedAt)}',
+                      '${fmtPrice(s.y)} ₺\n${DateFormat('dd.MM HH:mm').format(data[s.x.toInt()].checkedAt)}',
                       const TextStyle(color: Colors.white, fontSize: 11),
                     ))
                 .toList(),

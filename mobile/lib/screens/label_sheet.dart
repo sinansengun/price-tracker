@@ -1,7 +1,61 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../models/product.dart';
 import '../providers/products_provider.dart';
+
+final _priceFormat = NumberFormat('#,##0.00', 'tr_TR');
+
+/// "100.000,34" formatında string döndürür
+String fmtPrice(double v) => _priceFormat.format(v);
+
+/// Ana rakam normal, ",XX TL" kısmı daha küçük
+class PriceText extends StatelessWidget {
+  final double value;
+  final double fontSize;
+  final FontWeight fontWeight;
+  final Color? color;
+
+  const PriceText({
+    super.key,
+    required this.value,
+    this.fontSize = 15,
+    this.fontWeight = FontWeight.bold,
+    this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final formatted = fmtPrice(value);
+    final commaIdx = formatted.indexOf(',');
+    final intPart = commaIdx >= 0 ? formatted.substring(0, commaIdx) : formatted;
+    final decPart = commaIdx >= 0 ? formatted.substring(commaIdx) : '';
+    final effectiveColor =
+        color ?? DefaultTextStyle.of(context).style.color;
+
+    return RichText(
+      text: TextSpan(
+        style: TextStyle(
+            fontSize: fontSize,
+            fontWeight: fontWeight,
+            color: effectiveColor),
+        children: [
+          TextSpan(text: intPart),
+          if (decPart.isNotEmpty)
+            TextSpan(
+              text: '$decPart ₺',
+              style: TextStyle(
+                  fontSize: fontSize * 0.72,
+                  fontWeight: fontWeight,
+                  color: effectiveColor),
+            ),
+          if (decPart.isEmpty)
+            const TextSpan(text: ' ₺'),
+        ],
+      ),
+    );
+  }
+}
 
 Color? hexColor(String hex) {
   try {
@@ -10,6 +64,53 @@ Color? hexColor(String hex) {
     return Color(val);
   } catch (_) {
     return null;
+  }
+}
+
+String? faviconUrl(String url) {
+  try {
+    final host = Uri.parse(url).host;
+    if (host.isEmpty) return null;
+    return 'https://www.google.com/s2/favicons?domain=$host&sz=32';
+  } catch (_) {
+    return null;
+  }
+}
+
+class StoreBadge extends StatelessWidget {
+  final String store;
+  final String url;
+  const StoreBadge({super.key, required this.store, required this.url});
+
+  @override
+  Widget build(BuildContext context) {
+    final favicon = faviconUrl(url);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (favicon != null) ...[
+            Image.network(
+              favicon,
+              width: 14,
+              height: 14,
+              errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+            ),
+            const SizedBox(width: 4),
+          ],
+          Text(store,
+              style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant)),
+        ],
+      ),
+    );
   }
 }
 
