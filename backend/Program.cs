@@ -120,6 +120,6 @@ var recurringJobManager = app.Services.GetRequiredService<IRecurringJobManager>(
 recurringJobManager.AddOrUpdate<PriceCheckJob>(
     "check-all-prices",
     job => job.CheckAllProductsAsync(),
-    "*/5 * * * *");
+    "*/30 * * * *");
 
 await app.RunAsync();
