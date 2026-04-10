@@ -116,7 +116,8 @@ if (app.Environment.IsDevelopment())
     app.UseHangfireDashboard("/hangfire");
 
 // Her 5 dakikada bir tüm ürünlerin fiyatını kontrol et
-RecurringJob.AddOrUpdate<PriceCheckJob>(
+var recurringJobManager = app.Services.GetRequiredService<IRecurringJobManager>();
+recurringJobManager.AddOrUpdate<PriceCheckJob>(
     "check-all-prices",
     job => job.CheckAllProductsAsync(),
     "*/5 * * * *");
