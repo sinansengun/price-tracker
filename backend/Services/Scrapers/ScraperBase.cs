@@ -10,15 +10,14 @@ namespace PriceTracker.Services.Scrapers;
 public abstract class ScraperBase(ILogger logger, IHttpClientFactory httpClientFactory) : ISiteScraper
 {
     protected ILogger Logger { get; } = logger;
+    protected IHttpClientFactory HttpClientFactory { get; } = httpClientFactory;
 
     public abstract bool CanHandle(string url);
     public abstract Task<ScrapeResult?> ScrapeAsync(string url);
 
-    // ── HTML Fetch ────────────────────────────────────────────────────────
-
     protected async Task<string?> FetchHtmlAsync(string url)
     {
-        var client = httpClientFactory.CreateClient("Scraper");
+        var client = HttpClientFactory.CreateClient("Scraper");
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.TryAddWithoutValidation("User-Agent",  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
         request.Headers.TryAddWithoutValidation("Accept",      "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7");

@@ -1,8 +1,5 @@
 class ApiClient {
-  // macOS / iOS simülatörü → localhost
-  // Android emülatörü      → 10.0.2.2
-  // Fiziksel cihaz          → bilgisayarın yerel IP'si
-  static const String baseUrl = 'http://localhost:5254/api';
+  static const String baseUrl = 'https://price-tracker-api.up.railway.app/api';
 
   // Token depolamak için basit in-memory slot (AuthProvider tarafından set edilir)
   static String? _token;

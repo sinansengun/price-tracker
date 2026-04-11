@@ -5,10 +5,22 @@ namespace PriceTracker.Services.Scrapers;
 public class AmazonScraper(ILogger<AmazonScraper> logger, IHttpClientFactory httpClientFactory)
     : ScraperBase(logger, httpClientFactory)
 {
-    public override bool CanHandle(string url) => url.Contains("amazon.com");
+    public override bool CanHandle(string url) =>
+        url.Contains("amazon.com") || url.Contains("amzn.eu") || url.Contains("amzn.to");
 
     public override async Task<ScrapeResult?> ScrapeAsync(string url)
     {
+        // Kısa URL'leri (amzn.eu, amzn.to) gerçek Amazon URL'ine çevir
+        if (url.Contains("amzn.eu") || url.Contains("amzn.to"))
+        {
+            var client = HttpClientFactory.CreateClient("Scraper");
+            var head = new HttpRequestMessage(HttpMethod.Head, url);
+            using var resp = await client.SendAsync(head, HttpCompletionOption.ResponseHeadersRead);
+            var resolved = resp.RequestMessage?.RequestUri?.ToString() ?? url;
+            Logger.LogInformation("Amazon short URL resolved: {Short} → {Long}", url, resolved);
+            url = resolved;
+        }
+
         Logger.LogInformation("Amazon: Fetching HTML from {Url}", url);
         var html = await FetchHtmlAsync(url);
         if (html == null) return null;

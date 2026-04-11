@@ -86,6 +86,7 @@ builder.Services.AddScoped<ISiteScraper, HepsiburadaScraper>();
 builder.Services.AddScoped<ISiteScraper, AmazonScraper>();
 builder.Services.AddScoped<ISiteScraper, AbtSaatScraper>();
 builder.Services.AddScoped<ISiteScraper, AydinSaatScraper>();
+builder.Services.AddScoped<ISiteScraper, AslanSaatScraper>();
 
 // App services
 builder.Services.AddScoped<ScraperService>();
@@ -120,6 +121,6 @@ var recurringJobManager = app.Services.GetRequiredService<IRecurringJobManager>(
 recurringJobManager.AddOrUpdate<PriceCheckJob>(
     "check-all-prices",
     job => job.CheckAllProductsAsync(),
-    "*/30 * * * *");
+    "0 8,12,16,20 * * *");
 
 await app.RunAsync();

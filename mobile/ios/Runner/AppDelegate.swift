@@ -71,6 +71,9 @@ func handleIncomingURL(_ url: URL) {
         let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
         let urlParam = components.queryItems?.first(where: { $0.name == "url" })?.value
   else { return }
+  // UserDefaults'u hemen temizle: didChangeAppLifecycleState → getPendingUrl
+  // ile URL scheme → sharedUrl channel yollarının aynı URL'yi çift işlemesini engelle.
+  UserDefaults(suiteName: "group.com.pricetracker.mobile")?.removeObject(forKey: "sharedUrl")
   AppDelegate.sendSharedUrl(urlParam)
 }
 

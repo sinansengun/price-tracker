@@ -325,11 +325,11 @@ function ProductRow({
   return (
     <div className="bg-white border border-gray-200 rounded-xl flex overflow-hidden cursor-pointer hover:shadow-md hover:border-brand-200 transition-all duration-150 group">
       <div
-        className="shrink-0 w-28 sm:w-36 bg-gray-50 flex items-center justify-center p-2 border-r border-gray-100"
+        className="shrink-0 w-28 sm:w-36 h-28 bg-gray-50 flex items-center justify-center p-2 border-r border-gray-100 overflow-hidden"
         onClick={() => navigate(`/products/${product.id}`)}
       >
         {imgSrc
-          ? <img src={imgSrc} alt={product.name} className="w-full h-full object-contain max-h-28" />
+          ? <img src={imgSrc} alt={product.name} className="max-w-full max-h-full object-contain" />
           : <span className="text-4xl">🛍️</span>}
       </div>
 
@@ -434,9 +434,9 @@ function ProductCard({ product }: { product: Product }) {
       onClick={() => navigate(`/products/${product.id}`)}
       className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden cursor-pointer hover:shadow-md hover:-translate-y-0.5 transition-all duration-150"
     >
-      <div className="h-44 bg-gray-50 flex items-center justify-center overflow-hidden">
+      <div className="h-44 bg-gray-50 flex items-center justify-center overflow-hidden p-4">
         {imgSrc
-          ? <img src={imgSrc} alt={product.name} className="h-full w-full object-contain p-4" />
+          ? <img src={imgSrc} alt={product.name} className="max-h-full max-w-full object-contain" />
           : <span className="text-4xl">🛍️</span>}
       </div>
       <div className="p-4 space-y-2">

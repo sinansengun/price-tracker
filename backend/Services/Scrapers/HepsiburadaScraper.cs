@@ -10,10 +10,25 @@ public class HepsiburadaScraper(
     PlaywrightService playwright)
     : ScraperBase(logger, httpClientFactory)
 {
-    public override bool CanHandle(string url) => url.Contains("hepsiburada.com");
+    public override bool CanHandle(string url) =>
+        url.Contains("hepsiburada.com") ||
+        url.Contains("app.hb.biz", StringComparison.OrdinalIgnoreCase);
 
     public override async Task<ScrapeResult?> ScrapeAsync(string url)
     {
+        // app.hb.biz kısa linklerini gerçek Hepsiburada URL'sine çevir
+        if (url.Contains("app.hb.biz", StringComparison.OrdinalIgnoreCase))
+        {
+            var resolved = await ResolveHbShortLinkAsync(url);
+            if (resolved == null)
+            {
+                Logger.LogWarning("Hepsiburada: app.hb.biz linki çözümlenemedi: {Url}", url);
+                return null;
+            }
+            Logger.LogInformation("Hepsiburada: Kısa link çözümlendi → {Url}", resolved);
+            url = resolved;
+        }
+
         Logger.LogInformation("Hepsiburada: Fetching HTML from {Url}", url);
         var html = await FetchHtmlAsync(url);
         if (html == null) return null;
@@ -559,6 +574,44 @@ public class HepsiburadaScraper(
         catch (Exception ex)
         {
             Logger.LogError(ex, "HTML fallback failed for {Url}", url);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// app.hb.biz/{code} → 301 Location'daki adj_fallback parametresinden
+    /// gerçek hepsiburada.com ürün URL'sini çıkarır.
+    /// </summary>
+    private async Task<string?> ResolveHbShortLinkAsync(string shortUrl)
+    {
+        try
+        {
+            var client = HttpClientFactory.CreateClient("Scraper");
+            // Redirect'i takip etme — sadece Location header'ını oku
+            using var handler = new HttpClientHandler { AllowAutoRedirect = false };
+            using var tempClient = new HttpClient(handler);
+            using var response = await tempClient.GetAsync(shortUrl);
+
+            var location = response.Headers.Location?.ToString();
+            if (string.IsNullOrEmpty(location)) return null;
+
+            // adj_fallback=https%3A%2F%2Fwww.hepsiburada.com%2F...
+            var match = Regex.Match(location,
+                @"adj_fallback=([^&]+)", RegexOptions.IgnoreCase);
+            if (!match.Success) return null;
+
+            var fallback = Uri.UnescapeDataString(match.Groups[1].Value);
+
+            // Sadece hepsiburada.com URL'lerini kabul et
+            if (!fallback.Contains("hepsiburada.com")) return null;
+
+            // UTM ve tracking parametrelerini temizle, sadece temel URL'yi tut
+            var uri = new Uri(fallback);
+            return $"{uri.Scheme}://{uri.Host}{uri.AbsolutePath}";
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "app.hb.biz link çözümlemesi başarısız: {Url}", shortUrl);
             return null;
         }
     }

@@ -171,7 +171,25 @@ class _LabelSheetState extends State<LabelSheet> {
                       height: 14,
                       decoration: BoxDecoration(
                           color: c, borderRadius: BorderRadius.circular(3))),
-                  title: Text(l.name, style: const TextStyle(fontSize: 14)),
+                  title: Container(
+                    alignment: Alignment.centerLeft,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: c.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        l.name.toUpperCase(),
+                        style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 0.8,
+                            color: c),
+                      ),
+                    ),
+                  ),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [

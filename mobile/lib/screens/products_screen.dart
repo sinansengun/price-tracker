@@ -85,8 +85,11 @@ class ProductsScreenState extends State<ProductsScreen> {
                         child: Row(
                           children: [
                             FilterChip(
-                              label: const Text('Tümü'),
-                              labelStyle: const TextStyle(fontSize: 12),
+                              label: const Text('TÜMÜ'),
+                              labelStyle: const TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: 0.6),
                               selected: _filterLabelId == null,
                               onSelected: (_) =>
                                   setState(() => _filterLabelId = null),
@@ -99,13 +102,15 @@ class ProductsScreenState extends State<ProductsScreen> {
                               return Padding(
                                 padding: const EdgeInsets.only(right: 6),
                                 child: FilterChip(
-                                  label: Text(l.name),
+                                  label: Text(l.name.toUpperCase()),
                                   selected: selected,
                                   selectedColor: color.withValues(alpha: 0.2),
                                   checkmarkColor: color,
                                   labelStyle: TextStyle(
                                       color: selected ? color : null,
-                                      fontSize: 12),
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                      letterSpacing: 0.6),
                                   side: BorderSide(
                                       color: selected
                                           ? color
@@ -218,18 +223,18 @@ class _ProductCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         onTap: () => context.push('/products/${up.id}'),
         child: Padding(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
           child: Row(
             children: [
               // Ürün resmi
               SizedBox(
-                width: 90,
-                height: 90,
+                width: 100,
+                height: 100,
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(8),
                   child: p.imageUrl != null
                       ? Image.network(p.imageUrl!,
-                          width: 90, height: 90, fit: BoxFit.cover,
+                          width: 100, height: 100, fit: BoxFit.cover,
                           errorBuilder: (_, __, ___) =>
                               const _PlaceholderImage())
                       : const _PlaceholderImage(),
@@ -261,15 +266,6 @@ class _ProductCard extends StatelessWidget {
                           const Text('—',
                               style: TextStyle(
                                   fontSize: 15, fontWeight: FontWeight.bold)),
-                        if (up.targetPrice != null) ...[
-                          const SizedBox(width: 8),
-                          Text(
-                            'Hedef: ${fmtPrice(up.targetPrice!)} ₺',
-                            style: TextStyle(
-                                fontSize: 11,
-                                color: cs.onSurface.withValues(alpha: 0.55)),
-                          ),
-                        ],
                       ],
                     ),
                     if (p.initialPrice != null &&
@@ -298,10 +294,11 @@ class _ProductCard extends StatelessWidget {
                               color: c.withValues(alpha: 0.15),
                               borderRadius: BorderRadius.circular(4),
                             ),
-                            child: Text(l.name,
+                            child: Text(l.name.toUpperCase(),
                                 style: TextStyle(
                                     fontSize: 10,
-                                    fontWeight: FontWeight.w600,
+                                    fontWeight: FontWeight.bold,
+                                    letterSpacing: 0.6,
                                     color: c)),
                           );
                         }).toList(),
@@ -319,11 +316,35 @@ class _ProductCard extends StatelessWidget {
                   ],
                 ),
               ),
-              // Mini grafik + değişim oranı
-              if (p.priceHistories.length >= 2)
+              // Mini grafik + değişim oranı + hedef fiyat
+              if (p.priceHistories.length >= 2 || up.targetPrice != null)
                 Padding(
                   padding: const EdgeInsets.only(left: 8),
-                  child: _MiniChartWithPct(histories: p.priceHistories),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (p.priceHistories.length >= 2)
+                        _MiniChartWithPct(histories: p.priceHistories),
+                      if (up.targetPrice != null) ...[
+                        if (p.priceHistories.length >= 2)
+                          const SizedBox(height: 4),
+                        Text(
+                          'Hedef',
+                          style: TextStyle(
+                              fontSize: 9,
+                              color: cs.onSurface.withValues(alpha: 0.45)),
+                        ),
+                        Text(
+                          '${fmtPrice(up.targetPrice!)} ₺',
+                          style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                              color: cs.onSurface.withValues(alpha: 0.7)),
+                        ),
+                      ],
+                    ],
+                  ),
                 ),
             ],
           ),
@@ -472,8 +493,8 @@ class _PlaceholderImage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 90,
-      height: 90,
+      width: 100,
+      height: 100,
       color: Theme.of(context).colorScheme.surfaceContainerHighest,
       child: const Icon(Icons.image_not_supported_outlined),
     );

@@ -121,11 +121,6 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                     const SizedBox(width: 16),
                     _PriceTile(
                         label: 'Başlangıç Fiyatı', value: p.initialPrice),
-                    const SizedBox(width: 16),
-                    _PriceTile(
-                        label: 'Hedef Fiyat',
-                        value: up.targetPrice,
-                        color: cs.primary),
                   ],
                 ),
                 if (p.lastCheckedAt != null) ...[
@@ -183,10 +178,11 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                       children: up.labels.map((l) {
                         final c = hexColor(l.color) ?? Colors.indigo;
                         return Chip(
-                          label: Text(l.name,
+                          label: Text(l.name.toUpperCase(),
                               style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: 0.6,
                                   color: c)),
                           backgroundColor: c.withValues(alpha: 0.12),
                           side: BorderSide.none,
@@ -210,17 +206,6 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
         ),
         const SizedBox(height: 12),
 
-        // Hedef fiyat güncelle
-        Card(
-          child: ListTile(
-            leading: const Icon(Icons.local_offer_outlined),
-            title: const Text('Hedef Fiyatı Güncelle'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => _showTargetPriceDialog(context, up),
-          ),
-        ),
-        const SizedBox(height: 12),
-
         // Fiyat grafiği
         if (p.priceHistories.isNotEmpty) ...[
           Text('Fiyat Geçmişi',
@@ -231,21 +216,23 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
               padding: const EdgeInsets.fromLTRB(8, 16, 16, 8),
               child: SizedBox(
                 height: 200,
-                child: _PriceChart(histories: p.priceHistories),
+                child: _PriceChart(histories: _filterPriceHistory(p.priceHistories)),
               ),
             ),
           ),
-          const SizedBox(height: 12),
-
-          // Fiyat geçmişi listesi
-          Text('Kayıtlar', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 8),
-          ...p.priceHistories.take(20).map((h) => ListTile(
-                dense: true,
-                title: Text('${fmtPrice(h.price)} ₺'),
-                subtitle: Text(
-                    DateFormat('dd.MM.yyyy HH:mm').format(h.checkedAt)),
-              )),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: () => _showTargetPriceDialog(context, up),
+              icon: const Icon(Icons.local_offer_outlined, size: 15),
+              label: Text(
+                up.targetPrice != null
+                    ? 'Hedef: ${fmtPrice(up.targetPrice!)} ₺'
+                    : 'Hedef Fiyat Belirle',
+                style: const TextStyle(fontSize: 12),
+              ),
+            ),
+          ),
         ],
       ],
     );
@@ -322,6 +309,33 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
       ),
     );
   }
+}
+
+/// Fiyat geçmişini filtreler:
+/// - Aynı gün içinde fiyat değiştiyse her değişimi göster.
+/// - Aynı gün içinde fiyat değişmediyse sadece bir kayıt göster.
+List<PricePoint> _filterPriceHistory(List<PricePoint> all) {
+  if (all.isEmpty) return all;
+  final sorted = [...all]..sort((a, b) => a.checkedAt.compareTo(b.checkedAt));
+  final result = <PricePoint>[];
+  PricePoint? last;
+  for (final h in sorted) {
+    if (last == null) {
+      result.add(h);
+      last = h;
+      continue;
+    }
+    final sameDay = last.checkedAt.year == h.checkedAt.year &&
+        last.checkedAt.month == h.checkedAt.month &&
+        last.checkedAt.day == h.checkedAt.day;
+    final samePrice = last.price == h.price;
+    if (!samePrice || !sameDay) {
+      result.add(h);
+      last = h;
+    }
+    // Aynı gün + aynı fiyat → atla
+  }
+  return result;
 }
 
 class _PriceTile extends StatelessWidget {

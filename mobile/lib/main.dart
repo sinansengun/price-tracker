@@ -95,6 +95,16 @@ class _PriceTrackerAppState extends State<PriceTrackerApp>
   }
 
   Future<void> _handleSharedUrl(String url) async {
+    // Aynı URL 5 saniye içinde tekrar gelirse yoksay (çift işleme koruması).
+    final now = DateTime.now();
+    if (_lastHandledUrl == url &&
+        _lastHandledUrlTime != null &&
+        now.difference(_lastHandledUrlTime!) < const Duration(seconds: 5)) {
+      return;
+    }
+    _lastHandledUrl = url;
+    _lastHandledUrlTime = now;
+
     final auth = context.read<AuthProvider>();
     if (!auth.isAuthenticated) {
       // Giriş yapılmamış, URL'yi beklet ve login sonrası kullan
@@ -113,6 +123,11 @@ class _PriceTrackerAppState extends State<PriceTrackerApp>
   }
 
   String? _pendingSharedUrl;
+
+  // Çift URL işlemeyi engeller: URL scheme ve UserDefaults yolları
+  // aynı anda tetiklendiğinde modal iki kez açılıp kapanmasın.
+  String? _lastHandledUrl;
+  DateTime? _lastHandledUrlTime;
 
   @override
   void dispose() {
