@@ -1,6 +1,7 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.IdentityModel.Tokens;
@@ -44,6 +45,23 @@ public class AuthController(
         return Ok(new { token = GenerateToken(user) });
     }
 
+    // PUT api/auth/device-token
+    [HttpPut("device-token")]
+    [Authorize]
+    public async Task<IActionResult> UpdateDeviceToken([FromBody] DeviceTokenRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Token))
+            return BadRequest(new { error = "Token boş olamaz." });
+
+        var userId = User.FindFirstValue(JwtRegisteredClaimNames.Sub);
+        var user = await userManager.FindByIdAsync(userId ?? string.Empty);
+        if (user == null) return Unauthorized();
+
+        user.FcmToken = request.Token;
+        await userManager.UpdateAsync(user);
+        return Ok();
+    }
+
     private string GenerateToken(AppUser user)
     {
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(config["Jwt:Key"]!));
@@ -70,3 +88,4 @@ public class AuthController(
 
 public record RegisterRequest(string? Email, string? Password);
 public record LoginRequest(string? Email, string? Password);
+public record DeviceTokenRequest(string? Token);

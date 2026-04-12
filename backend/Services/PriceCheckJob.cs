@@ -1,3 +1,5 @@
+using FirebaseAdmin;
+using FirebaseAdmin.Messaging;
 using Microsoft.EntityFrameworkCore;
 using PriceTracker.Data;
 using PriceTracker.Models;
@@ -51,11 +53,55 @@ public class PriceCheckJob(
 
         await db.SaveChangesAsync();
 
-        if (previousPrice.HasValue && previousPrice.Value != result.Price)
+        if (previousPrice.HasValue && result.Price < previousPrice.Value)
+        {
+            logger.LogInformation(
+                "Price dropped for '{Name}': {OldPrice} → {NewPrice}",
+                product.Name, previousPrice.Value, result.Price);
+
+            await SendPriceDropNotificationsAsync(product, previousPrice.Value, result.Price);
+        }
+        else if (previousPrice.HasValue && previousPrice.Value != result.Price)
         {
             logger.LogInformation(
                 "Price changed for '{Name}': {OldPrice} → {NewPrice}",
                 product.Name, previousPrice.Value, result.Price);
+        }
+    }
+
+    private async Task SendPriceDropNotificationsAsync(Product product, decimal oldPrice, decimal newPrice)
+    {
+        if (FirebaseApp.DefaultInstance == null) return;
+
+        var userProducts = await db.UserProducts
+            .Include(up => up.User)
+            .Where(up => up.ProductId == product.Id && up.User.FcmToken != null)
+            .ToListAsync();
+
+        foreach (var up in userProducts)
+        {
+            try
+            {
+                var message = new Message
+                {
+                    Token = up.User.FcmToken,
+                    Notification = new Notification
+                    {
+                        Title = "Fiyat Düştü! 🎉",
+                        Body = $"{product.Name}: {oldPrice:F2}₺ → {newPrice:F2}₺"
+                    },
+                    Data = new Dictionary<string, string>
+                    {
+                        ["productId"] = product.Id.ToString(),
+                        ["userProductId"] = up.Id.ToString()
+                    }
+                };
+                await FirebaseMessaging.DefaultInstance.SendAsync(message);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "FCM bildirimi gönderilemedi: userId={UserId}", up.UserId);
+            }
         }
     }
 }

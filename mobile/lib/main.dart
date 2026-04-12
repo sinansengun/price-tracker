@@ -1,7 +1,10 @@
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'api/api_client.dart';
 import 'providers/auth_provider.dart';
 import 'providers/products_provider.dart';
 import 'screens/login_screen.dart';
@@ -9,12 +12,22 @@ import 'screens/product_detail_screen.dart';
 import 'screens/products_screen.dart';
 import 'screens/register_screen.dart';
 
+// Arka planda gelen mesajları işle (top-level fonksiyon olmalı)
+@pragma('vm:entry-point')
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  await Firebase.initializeApp();
+}
+
 const _shareChannel = MethodChannel('com.pricetracker.mobile/share');
 
 // Ürün ekle dialog'unu dışarıdan tetiklemek için global key
 final addProductKey = GlobalKey<ProductsScreenState>();
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp();
+  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+
   runApp(
     MultiProvider(
       providers: [
@@ -41,6 +54,7 @@ class _PriceTrackerAppState extends State<PriceTrackerApp>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _setupFcm();
     // Warm start: native URL scheme üzerinden geldiğinde
     _shareChannel.setMethodCallHandler((call) async {
       if (call.method == 'sharedUrl') {
@@ -91,6 +105,27 @@ class _PriceTrackerAppState extends State<PriceTrackerApp>
           await _handleSharedUrl(pending);
         }
       } catch (_) {}
+    });
+  }
+
+  Future<void> _setupFcm() async {
+    final messaging = FirebaseMessaging.instance;
+    await messaging.requestPermission(alert: true, badge: true, sound: true);
+
+    // Mevcut token'ı backend'e kaydet
+    final token = await messaging.getToken();
+    if (token != null) {
+      await ApiClient.updateDeviceToken(token);
+    }
+
+    // Token yenilenirse tekrar gönder
+    messaging.onTokenRefresh.listen((newToken) {
+      ApiClient.updateDeviceToken(newToken);
+    });
+
+    // Uygulama açıkken gelen bildirimleri yönet
+    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+      // İsteğe bağlı: snackbar veya yerel bildirim gösterilebilir
     });
   }
 

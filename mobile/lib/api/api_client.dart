@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+
 class ApiClient {
   static const String baseUrl = 'https://price-tracker-api.up.railway.app/api';
 
@@ -15,4 +18,16 @@ class ApiClient {
   // Export için
   static Map<String, String> get headers => _headers;
   static Uri Function(String) get uri => _uri;
+
+  static Future<void> updateDeviceToken(String fcmToken) async {
+    try {
+      await http.put(
+        _uri('/auth/device-token'),
+        headers: _headers,
+        body: jsonEncode(fcmToken),
+      );
+    } catch (_) {
+      // Bildirim token kaydı kritik değil, sessizce geç
+    }
+  }
 }

@@ -1,4 +1,6 @@
 using System.Text;
+using FirebaseAdmin;
+using Google.Apis.Auth.OAuth2;
 using Hangfire;
 using Hangfire.PostgreSql;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -87,6 +89,7 @@ builder.Services.AddScoped<ISiteScraper, AmazonScraper>();
 builder.Services.AddScoped<ISiteScraper, AbtSaatScraper>();
 builder.Services.AddScoped<ISiteScraper, AydinSaatScraper>();
 builder.Services.AddScoped<ISiteScraper, AslanSaatScraper>();
+builder.Services.AddScoped<ISiteScraper, EdipSaatScraper>();
 
 // App services
 builder.Services.AddScoped<ScraperService>();
@@ -97,6 +100,22 @@ builder.Services.AddCors(opts =>
         p.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
 
 builder.Services.AddControllers();
+
+// Firebase Admin SDK
+var firebaseCredPath = builder.Configuration["Firebase:CredentialPath"];
+try
+{
+    AppOptions firebaseOptions = !string.IsNullOrEmpty(firebaseCredPath) && File.Exists(firebaseCredPath)
+        ? new AppOptions { Credential = GoogleCredential.FromFile(firebaseCredPath) }
+        : new AppOptions { Credential = GoogleCredential.GetApplicationDefault() };
+
+    FirebaseApp.Create(firebaseOptions);
+}
+catch (Exception ex)
+{
+    var startupLogger = LoggerFactory.Create(b => b.AddConsole()).CreateLogger("Startup");
+    startupLogger.LogWarning("Firebase başlatılamadı, push bildirimleri devre dışı: {Message}", ex.Message);
+}
 
 var app = builder.Build();
 
