@@ -323,95 +323,116 @@ function ProductRow({
   }
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl flex overflow-hidden cursor-pointer hover:shadow-md hover:border-brand-200 transition-all duration-150 group">
-      <div
-        className="shrink-0 w-28 sm:w-36 h-28 bg-gray-50 flex items-center justify-center p-2 border-r border-gray-100 overflow-hidden"
-        onClick={() => navigate(`/products/${product.id}`)}
-      >
-        {imgSrc
-          ? <img src={imgSrc} alt={product.name} className="max-w-full max-h-full object-contain" />
-          : <span className="text-4xl">🛍️</span>}
-      </div>
-
-      <div
-        className="flex-1 min-w-0 px-4 py-3 flex flex-col justify-between"
-        onClick={() => navigate(`/products/${product.id}`)}
-      >
-        <p className="text-sm font-semibold text-gray-900 leading-snug line-clamp-2 group-hover:text-brand-700 transition-colors">
-          {product.name || 'Yükleniyor...'}
-        </p>
-
-        <div className="mt-2 space-y-0.5">
-          {product.currentPrice != null ? (
-            <>
-              <p className="text-xl font-bold text-gray-900">{fmt(product.currentPrice)}</p>
-              {product.initialPrice != null && product.initialPrice !== product.currentPrice && (
-                <p className="text-xs text-gray-400 line-through">{fmt(product.initialPrice)}</p>
-              )}
-            </>
-          ) : (
-            <p className="text-sm text-gray-400">Fiyat bekleniyor</p>
-          )}
+    <div
+      className="bg-white border border-gray-200 rounded-xl overflow-hidden cursor-pointer hover:shadow-md hover:border-brand-200 transition-all duration-150 group"
+      onClick={() => navigate(`/products/${product.id}`)}
+    >
+      <div className="flex">
+        <div
+          className="shrink-0 w-20 sm:w-36 h-20 sm:h-28 bg-gray-50 flex items-center justify-center p-2 border-r border-gray-100 overflow-hidden"
+        >
+          {imgSrc
+            ? <img src={imgSrc} alt={product.name} className="max-w-full max-h-full object-contain" />
+            : <span className="text-4xl">🛍️</span>}
         </div>
 
-        <div className="mt-3 flex items-center gap-1.5 flex-wrap py-1.5" onClick={e => e.stopPropagation()}>
-          {product.store && <StoreBadge store={product.store} url={product.url} />}
-          {product.labels?.map(l => (
-            <button
-              key={l.id}
-              onClick={e => { e.stopPropagation(); onLabelClick(l.id) }}
-              className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded cursor-pointer hover:brightness-90 transition-all"
-              style={{ backgroundColor: l.color + '1A', color: l.color }}
-            >
-              {l.name}
-            </button>
-          ))}
-          <LabelDropdown
-            product={product}
-            allLabels={allLabels}
-            onProductLabelsChange={onProductLabelsChange}
-            onNewLabel={onNewLabel}
-          />
-          {product.targetPrice != null && (
-            <span className="text-xs text-gray-400">🎯 Hedef: {fmt(product.targetPrice)}</span>
-          )}
-        </div>
+        <div
+          className="flex-1 min-w-0 px-3 sm:px-4 py-3 flex flex-col justify-between"
+        >
+          <p className="text-sm font-semibold text-gray-900 leading-snug line-clamp-2 group-hover:text-brand-700 transition-colors">
+            {product.name || 'Yükleniyor...'}
+          </p>
 
-        <p className="mt-1 text-xs text-gray-400">
-          Eklendi: {fmtDate(product.createdAt)}
-          {product.lastCheckedAt && <> &nbsp;·&nbsp; Güncellendi: {fmtDate(product.lastCheckedAt, true)}</>}
-        </p>
-      </div>
-
-      <div
-        className="shrink-0 w-40 sm:w-52 border-l border-gray-100 bg-gray-50 flex flex-col items-center justify-between px-3 py-3 gap-1"
-        onClick={() => navigate(`/products/${product.id}`)}
-      >
-        {pct !== null && (
-          <div className={`flex items-center gap-1 text-xs font-bold ${pctUp ? 'text-red-500' : 'text-green-600'}`}>
-            <span>{periodLabel}:</span>
-            <span>{pctUp ? '▲' : '▼'} %{Math.abs(pct).toFixed(1)}</span>
+          <div className="mt-2 space-y-0.5">
+            {product.currentPrice != null ? (
+              <>
+                <p className="text-xl font-bold text-gray-900">{fmt(product.currentPrice)}</p>
+                {product.initialPrice != null && product.initialPrice !== product.currentPrice && (
+                  <p className="text-xs text-gray-400 line-through">{fmt(product.initialPrice)}</p>
+                )}
+              </>
+            ) : (
+              <p className="text-sm text-gray-400">Fiyat bekleniyor</p>
+            )}
           </div>
-        )}
 
-        <div className="w-full">
+          <div className="mt-3 flex items-center gap-1.5 flex-wrap py-1.5" onClick={e => e.stopPropagation()}>
+            {product.store && <StoreBadge store={product.store} url={product.url} />}
+            {product.labels?.map(l => (
+              <button
+                key={l.id}
+                onClick={e => { e.stopPropagation(); onLabelClick(l.id) }}
+                className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded cursor-pointer hover:brightness-90 transition-all"
+                style={{ backgroundColor: l.color + '1A', color: l.color }}
+              >
+                {l.name}
+              </button>
+            ))}
+            <LabelDropdown
+              product={product}
+              allLabels={allLabels}
+              onProductLabelsChange={onProductLabelsChange}
+              onNewLabel={onNewLabel}
+            />
+            {product.targetPrice != null && (
+              <span className="text-xs text-gray-400">🎯 Hedef: {fmt(product.targetPrice)}</span>
+            )}
+          </div>
+
+          <p className="mt-1 text-xs text-gray-400 hidden sm:block">
+            Eklendi: {fmtDate(product.createdAt)}
+            {product.lastCheckedAt && <> &nbsp;·&nbsp; Güncellendi: {fmtDate(product.lastCheckedAt, true)}</>}
+          </p>
+        </div>
+
+        <div
+          className="hidden sm:flex shrink-0 w-52 border-l border-gray-100 bg-gray-50 flex-col items-center justify-between px-3 py-3 gap-1"
+        >
+          {pct !== null && (
+            <div className={`flex items-center gap-1 text-xs font-bold ${pctUp ? 'text-red-500' : 'text-green-600'}`}>
+              <span>{periodLabel}:</span>
+              <span>{pctUp ? '▲' : '▼'} %{Math.abs(pct).toFixed(1)}</span>
+            </div>
+          )}
+
+          <div className="w-full">
+            <MiniChart histories={product.priceHistories} />
+          </div>
+
+          {first && (
+            <p className="text-[10px] text-gray-400 text-center leading-tight">
+              {fmtDate(first.checkedAt)}<br />
+              <span className="font-medium text-gray-600">{fmt(first.price)}</span>
+            </p>
+          )}
+
+          <button
+            className="mt-1 w-full text-xs text-brand-600 border border-brand-300 rounded-lg py-1 hover:bg-brand-50 transition-colors font-medium"
+            onClick={e => { e.stopPropagation(); navigate(`/products/${product.id}`) }}
+          >
+            Detaya Git →
+          </button>
+        </div>
+      </div>
+
+      {/* Mobil grafik şeridi */}
+      {product.priceHistories && product.priceHistories.length >= 2 && (
+        <div className="sm:hidden border-t border-gray-100 bg-gray-50 px-3 pt-1 pb-2" onClick={e => e.stopPropagation()}>
+          <div className="flex items-center justify-between mb-0.5">
+            {pct !== null && (
+              <span className={`text-[10px] font-bold ${pctUp ? 'text-red-500' : 'text-green-600'}`}>
+                {pctUp ? '▲' : '▼'} %{Math.abs(pct).toFixed(1)} {periodLabel && `(${periodLabel})`}
+              </span>
+            )}
+            {first && (
+              <span className="text-[10px] text-gray-400">
+                Başlangıç: <span className="font-medium text-gray-600">{fmt(first.price)}</span>
+              </span>
+            )}
+          </div>
           <MiniChart histories={product.priceHistories} />
         </div>
-
-        {first && (
-          <p className="text-[10px] text-gray-400 text-center leading-tight">
-            {fmtDate(first.checkedAt)}<br />
-            <span className="font-medium text-gray-600">{fmt(first.price)}</span>
-          </p>
-        )}
-
-        <button
-          className="mt-1 w-full text-xs text-brand-600 border border-brand-300 rounded-lg py-1 hover:bg-brand-50 transition-colors font-medium"
-          onClick={e => { e.stopPropagation(); navigate(`/products/${product.id}`) }}
-        >
-          Detaya Git →
-        </button>
-      </div>
+      )}
     </div>
   )
 }
@@ -522,42 +543,43 @@ export default function ProductsPage() {
   return (
     <div className="min-h-screen">
       <header className="bg-white border-b border-gray-200 sticky top-0 z-10">
-        <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
+        <div className="max-w-5xl mx-auto px-3 sm:px-4 py-3 sm:py-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="text-2xl">💰</span>
             <h1 className="text-xl font-bold text-gray-900">Fiyat Takip</h1>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2">
             <div className="flex items-center border border-gray-200 rounded-xl overflow-hidden">
               <button
                 onClick={() => setView('list')}
                 title="Liste görünümü"
-                className={`px-3 py-2 text-sm transition-colors ${view === 'list' ? 'bg-brand-600 text-white' : 'text-gray-500 hover:bg-gray-50'}`}
+                className={`px-2.5 sm:px-3 py-2 text-sm transition-colors ${view === 'list' ? 'bg-brand-600 text-white' : 'text-gray-500 hover:bg-gray-50'}`}
               >☰</button>
               <button
                 onClick={() => setView('grid')}
                 title="Kart görünümü"
-                className={`px-3 py-2 text-sm transition-colors ${view === 'grid' ? 'bg-brand-600 text-white' : 'text-gray-500 hover:bg-gray-50'}`}
+                className={`px-2.5 sm:px-3 py-2 text-sm transition-colors ${view === 'grid' ? 'bg-brand-600 text-white' : 'text-gray-500 hover:bg-gray-50'}`}
               >⊞</button>
             </div>
             <button
               onClick={handleLogout}
-              className="text-sm text-gray-500 hover:text-gray-800 px-3 py-2 rounded-xl hover:bg-gray-100 transition-colors"
+              className="hidden sm:block text-sm text-gray-500 hover:text-gray-800 px-3 py-2 rounded-xl hover:bg-gray-100 transition-colors"
               title="Çıkış Yap"
             >
               Çıkış
             </button>
             <button
               onClick={() => setShowModal(true)}
-              className="bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2 rounded-xl transition-colors"
+              className="bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-3 sm:px-4 py-2 rounded-xl transition-colors"
             >
-              + Ürün Ekle
+              <span className="hidden sm:inline">+ Ürün Ekle</span>
+              <span className="sm:hidden font-bold text-base leading-none">+</span>
             </button>
           </div>
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto px-4 py-8">
+      <main className="max-w-5xl mx-auto px-3 sm:px-4 py-6 sm:py-8">
         {/* Label filter bar */}
         {!loading && labels.length > 0 && (
           <div className="flex items-center gap-2 flex-wrap mb-6">
@@ -634,7 +656,7 @@ export default function ProductsPage() {
             ))}
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 min-[400px]:grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
             {filtered.map(p => <ProductCard key={p.id} product={p} />)}
           </div>
         )}
