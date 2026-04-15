@@ -103,13 +103,18 @@ builder.Services.AddControllers();
 
 // Firebase Admin SDK
 var firebaseCredPath = builder.Configuration["Firebase:CredentialPath"];
+var firebaseCredJson = Environment.GetEnvironmentVariable("FIREBASE_CREDENTIAL_JSON");
 try
 {
-    AppOptions firebaseOptions = !string.IsNullOrEmpty(firebaseCredPath) && File.Exists(firebaseCredPath)
-        ? new AppOptions { Credential = GoogleCredential.FromFile(firebaseCredPath) }
-        : new AppOptions { Credential = GoogleCredential.GetApplicationDefault() };
+    GoogleCredential googleCredential;
+    if (!string.IsNullOrEmpty(firebaseCredJson))
+        googleCredential = GoogleCredential.FromJson(firebaseCredJson);
+    else if (!string.IsNullOrEmpty(firebaseCredPath) && File.Exists(firebaseCredPath))
+        googleCredential = GoogleCredential.FromFile(firebaseCredPath);
+    else
+        googleCredential = GoogleCredential.GetApplicationDefault();
 
-    FirebaseApp.Create(firebaseOptions);
+    FirebaseApp.Create(new AppOptions { Credential = googleCredential });
 }
 catch (Exception ex)
 {
