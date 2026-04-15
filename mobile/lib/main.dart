@@ -112,8 +112,17 @@ class _PriceTrackerAppState extends State<PriceTrackerApp>
     final messaging = FirebaseMessaging.instance;
     await messaging.requestPermission(alert: true, badge: true, sound: true);
 
-    // Mevcut token'ı backend'e kaydet
-    final token = await messaging.getToken();
+    // iOS'ta APNs token hazır olana kadar bekle (maks 10 saniye)
+    String? token;
+    for (int i = 0; i < 10; i++) {
+      try {
+        token = await messaging.getToken();
+        if (token != null) break;
+      } catch (_) {
+        await Future.delayed(const Duration(seconds: 1));
+      }
+    }
+
     if (token != null) {
       await ApiClient.updateDeviceToken(token);
     }

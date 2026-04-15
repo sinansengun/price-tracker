@@ -248,6 +248,22 @@ public class ProductsController(
         var snippet = await scraper.GetHtmlSnippetForDebugAsync(product.Url);
         return Ok(new { snippet });
     }
+
+    // POST api/products/{id}/test-notification  →  sadece development/test amaçlı
+    [HttpPost("{id:int}/test-notification")]
+    public async Task<IActionResult> TestNotification(int id, [FromServices] PriceCheckJob priceCheckJob)
+    {
+        var up = await db.UserProducts
+            .Include(up => up.Product)
+            .FirstOrDefaultAsync(up => up.Id == id && up.UserId == UserId);
+        if (up == null) return NotFound();
+
+        var product = up.Product;
+        var fakeOldPrice = (product.CurrentPrice ?? 100m) * 1.1m;
+        await priceCheckJob.SendTestNotificationAsync(product, fakeOldPrice, product.CurrentPrice ?? 100m);
+
+        return Ok(new { message = $"'{product.Name}' için test bildirimi gönderildi." });
+    }
 }
 
 public record CreateProductRequest(string Url, string? Name, decimal? TargetPrice);

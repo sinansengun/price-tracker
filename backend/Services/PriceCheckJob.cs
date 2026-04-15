@@ -69,6 +69,9 @@ public class PriceCheckJob(
         }
     }
 
+    public Task SendTestNotificationAsync(Product product, decimal oldPrice, decimal newPrice)
+        => SendPriceDropNotificationsAsync(product, oldPrice, newPrice);
+
     private async Task SendPriceDropNotificationsAsync(Product product, decimal oldPrice, decimal newPrice)
     {
         if (FirebaseApp.DefaultInstance == null) return;
