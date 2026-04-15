@@ -108,7 +108,15 @@ try
 {
     GoogleCredential googleCredential;
     if (!string.IsNullOrEmpty(firebaseCredJson))
+    {
+        // Railway env variable'da private_key içindeki \n hem literal hem gerçek newline olabilir
+        // Önce gerçek newline'ları kaldır (JSON string içinde olmamalı)
+        firebaseCredJson = firebaseCredJson.Replace("\r\n", "").Replace("\r", "");
+        // private_key dışındaki gerçek newline'ları temizle ama JSON yapısını koru
+        firebaseCredJson = firebaseCredJson.Replace("\n", "");
+        // Şimdi literal \n'ler private_key içinde doğru şekilde kalıyor
         googleCredential = GoogleCredential.FromJson(firebaseCredJson);
+    }
     else if (!string.IsNullOrEmpty(firebaseCredPath) && File.Exists(firebaseCredPath))
         googleCredential = GoogleCredential.FromFile(firebaseCredPath);
     else
