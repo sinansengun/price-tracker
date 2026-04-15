@@ -108,7 +108,11 @@ try
 {
     GoogleCredential googleCredential;
     if (!string.IsNullOrEmpty(firebaseCredJson))
+    {
+        // Railway gibi ortamlarda \n literal olarak kalabilir, gerçek newline'a çevir
+        firebaseCredJson = firebaseCredJson.Replace("\\n", "\n");
         googleCredential = GoogleCredential.FromJson(firebaseCredJson);
+    }
     else if (!string.IsNullOrEmpty(firebaseCredPath) && File.Exists(firebaseCredPath))
         googleCredential = GoogleCredential.FromFile(firebaseCredPath);
     else
