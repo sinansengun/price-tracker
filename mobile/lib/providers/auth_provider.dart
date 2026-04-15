@@ -26,6 +26,7 @@ class AuthProvider extends ChangeNotifier {
       _token = t;
       ApiClient.setToken(t);
       notifyListeners();
+      onAuthenticated?.call();
     }
   }
 
@@ -94,10 +95,14 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  // Login/restore sonrası çağrılacak callback (FCM token kaydı için)
+  Future<void> Function()? onAuthenticated;
+
   Future<void> _saveToken(String token) async {
     _token = token;
     ApiClient.setToken(token);
     await _storage.write(key: _tokenKey, value: token);
+    onAuthenticated?.call();
   }
 
   String _extractError(String body, String fallback) {

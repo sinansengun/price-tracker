@@ -20,11 +20,12 @@ class ApiClient {
   static Uri Function(String) get uri => _uri;
 
   static Future<void> updateDeviceToken(String fcmToken) async {
+    if (_token == null) return;
     try {
       await http.put(
         _uri('/auth/device-token'),
         headers: _headers,
-        body: jsonEncode(fcmToken),
+        body: jsonEncode({'token': fcmToken}),
       );
     } catch (_) {
       // Bildirim token kaydı kritik değil, sessizce geç

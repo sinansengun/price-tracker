@@ -53,7 +53,8 @@ public class AuthController(
         if (string.IsNullOrWhiteSpace(request.Token))
             return BadRequest(new { error = "Token boş olamaz." });
 
-        var userId = User.FindFirstValue(JwtRegisteredClaimNames.Sub);
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
+                   ?? User.FindFirstValue(JwtRegisteredClaimNames.Sub);
         var user = await userManager.FindByIdAsync(userId ?? string.Empty);
         if (user == null) return Unauthorized();
 

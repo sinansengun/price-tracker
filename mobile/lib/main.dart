@@ -1,5 +1,6 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
@@ -54,7 +55,11 @@ class _PriceTrackerAppState extends State<PriceTrackerApp>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _setupFcm();
+    // FCM token kaydını login/restore sonrasına ertele
+    final auth = context.read<AuthProvider>();
+    auth.onAuthenticated = _setupFcm;
+    // Uygulama zaten giriş yapılmış halde açıldıysa hemen tetikle
+    if (auth.isAuthenticated) _setupFcm();
     // Warm start: native URL scheme üzerinden geldiğinde
     _shareChannel.setMethodCallHandler((call) async {
       if (call.method == 'sharedUrl') {
@@ -64,7 +69,6 @@ class _PriceTrackerAppState extends State<PriceTrackerApp>
         }
       }
     });
-    final auth = context.read<AuthProvider>();
     _router = GoRouter(
       initialLocation: '/login',
       onException: (_, state, router) {
@@ -112,15 +116,23 @@ class _PriceTrackerAppState extends State<PriceTrackerApp>
     final messaging = FirebaseMessaging.instance;
     await messaging.requestPermission(alert: true, badge: true, sound: true);
 
-    // iOS'ta APNs token hazır olana kadar bekle (maks 10 saniye)
-    String? token;
-    for (int i = 0; i < 10; i++) {
-      try {
-        token = await messaging.getToken();
-        if (token != null) break;
-      } catch (_) {
+    // iOS'ta önce APNs token'ın gelmesini bekle
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      String? apnsToken;
+      for (int i = 0; i < 15; i++) {
+        apnsToken = await messaging.getAPNSToken();
+        if (apnsToken != null) break;
         await Future.delayed(const Duration(seconds: 1));
       }
+      if (apnsToken == null) return; // APNs token gelmediyse çık
+    }
+
+    // FCM token'ı al
+    String? token;
+    try {
+      token = await messaging.getToken();
+    } catch (_) {
+      return;
     }
 
     if (token != null) {
