@@ -108,11 +108,7 @@ try
 {
     GoogleCredential googleCredential;
     if (!string.IsNullOrEmpty(firebaseCredJson))
-    {
-        // Railway gibi ortamlarda \n literal olarak kalabilir, gerçek newline'a çevir
-        firebaseCredJson = firebaseCredJson.Replace("\\n", "\n");
         googleCredential = GoogleCredential.FromJson(firebaseCredJson);
-    }
     else if (!string.IsNullOrEmpty(firebaseCredPath) && File.Exists(firebaseCredPath))
         googleCredential = GoogleCredential.FromFile(firebaseCredPath);
     else
@@ -127,6 +123,25 @@ catch (Exception ex)
 }
 
 var app = builder.Build();
+
+// Geçici debug endpoint – Firebase credential durumu
+app.MapGet("/api/debug/firebase", () =>
+{
+    var json = Environment.GetEnvironmentVariable("FIREBASE_CREDENTIAL_JSON");
+    var hasKey = json?.Contains("private_key") ?? false;
+    var hasRealNewline = json?.Contains('\n') ?? false; // gerçek newline
+    var hasLiteralNewline = json?.Contains("\\n") ?? false; // literal \n
+    var firebaseReady = FirebaseAdmin.FirebaseApp.DefaultInstance != null;
+    return Results.Ok(new
+    {
+        envVarSet = !string.IsNullOrEmpty(json),
+        envVarLength = json?.Length ?? 0,
+        hasPrivateKey = hasKey,
+        hasRealNewline,
+        hasLiteralNewline,
+        firebaseAppReady = firebaseReady
+    });
+});
 
 // Migration'ları uygula
 using (var scope = app.Services.CreateScope())
