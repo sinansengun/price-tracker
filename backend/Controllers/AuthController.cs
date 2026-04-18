@@ -13,7 +13,8 @@ namespace PriceTracker.Controllers;
 [Route("api/auth")]
 public class AuthController(
     UserManager<AppUser> userManager,
-    IConfiguration config) : ControllerBase
+    IConfiguration config,
+    IWebHostEnvironment env) : ControllerBase
 {
     // POST api/auth/register
     [HttpPost("register")]
@@ -43,6 +44,34 @@ public class AuthController(
             return Unauthorized(new { error = "E-posta veya şifre hatalı." });
 
         return Ok(new { token = GenerateToken(user) });
+    }
+
+    // POST api/auth/dev-reset-user
+    // Sadece local development'ta, test hesabını şifreyle birlikte sıfırlamak için.
+    [HttpPost("dev-reset-user")]
+    public async Task<IActionResult> DevResetUser([FromBody] RegisterRequest request)
+    {
+        if (!env.IsDevelopment())
+            return NotFound();
+
+        var email = request.Email?.Trim().ToLower();
+        if (string.IsNullOrEmpty(email))
+            return BadRequest(new { error = "E-posta boş olamaz." });
+
+        var existing = await userManager.FindByEmailAsync(email);
+        if (existing != null)
+        {
+            var deleteResult = await userManager.DeleteAsync(existing);
+            if (!deleteResult.Succeeded)
+                return BadRequest(new { errors = deleteResult.Errors.Select(e => e.Description) });
+        }
+
+        var user = new AppUser { UserName = email, Email = email };
+        var createResult = await userManager.CreateAsync(user, request.Password ?? string.Empty);
+        if (!createResult.Succeeded)
+            return BadRequest(new { errors = createResult.Errors.Select(e => e.Description) });
+
+        return Ok(new { token = GenerateToken(user), message = "Test hesabı sıfırlandı." });
     }
 
     // PUT api/auth/device-token

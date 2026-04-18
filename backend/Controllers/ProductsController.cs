@@ -255,14 +255,16 @@ public class ProductsController(
     {
         var up = await db.UserProducts
             .Include(up => up.Product)
+            .Include(up => up.User)
             .FirstOrDefaultAsync(up => up.Id == id && up.UserId == UserId);
-        if (up == null) return NotFound();
+        if (up == null) return NotFound(new { error = "UserProduct bulunamadı", userProductId = id, userId = UserId });
 
         var product = up.Product;
         var fakeOldPrice = (product.CurrentPrice ?? 100m) * 1.1m;
-        await priceCheckJob.SendTestNotificationAsync(product, fakeOldPrice, product.CurrentPrice ?? 100m);
+        var fcmToken = up.User.FcmToken;
+        var result = await priceCheckJob.SendTestNotificationAsync(product, fakeOldPrice, product.CurrentPrice ?? 100m);
 
-        return Ok(new { message = $"'{product.Name}' için test bildirimi gönderildi." });
+        return Ok(new { message = $"'{product.Name}' için test bildirimi gönderildi.", fcmTokenExists = fcmToken != null, fcmTokenPreview = fcmToken?[..Math.Min(20, fcmToken.Length)], sendResult = result });
     }
 }
 

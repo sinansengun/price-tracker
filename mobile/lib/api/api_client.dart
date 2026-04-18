@@ -2,7 +2,10 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class ApiClient {
-  static const String baseUrl = 'https://price-tracker-api.up.railway.app/api';
+  static const String baseUrl = String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue: 'https://price-tracker-api.up.railway.app/api',
+  );
 
   // Token depolamak için basit in-memory slot (AuthProvider tarafından set edilir)
   static String? _token;

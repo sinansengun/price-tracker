@@ -12,9 +12,12 @@ appsettings.Development.json
 appsettings.json
 *.env
 .env
-backend/firebase-adminsdk.json
+backend/firebase.json
+backend/*firebase-adminsdk*.json
 mobile/ios/Runner/GoogleService-Info.plist
+mobile/ios/GoogleService-Info.plist
 mobile/android/app/google-services.json
+mobile/android/build/
 
 # ── Node / Frontend ────────────────────────────────────────────────────────
 node_modules/

@@ -3,6 +3,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'api/api_client.dart';
@@ -24,10 +25,28 @@ const _shareChannel = MethodChannel('com.pricetracker.mobile/share');
 // Ürün ekle dialog'unu dışarıdan tetiklemek için global key
 final addProductKey = GlobalKey<ProductsScreenState>();
 
+const AndroidNotificationChannel _androidChannel = AndroidNotificationChannel(
+  'price_tracker_high_importance',
+  'Price Alerts',
+  description: 'Foreground notifications for price alerts',
+  importance: Importance.high,
+);
+
+final FlutterLocalNotificationsPlugin _localNotifications =
+    FlutterLocalNotificationsPlugin();
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+
+  const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
+  const initSettings = InitializationSettings(android: androidInit);
+  await _localNotifications.initialize(initSettings);
+  await _localNotifications
+      .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>()
+      ?.createNotificationChannel(_androidChannel);
 
   runApp(
     MultiProvider(
@@ -146,7 +165,25 @@ class _PriceTrackerAppState extends State<PriceTrackerApp>
 
     // Uygulama açıkken gelen bildirimleri yönet
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-      // İsteğe bağlı: snackbar veya yerel bildirim gösterilebilir
+      final n = message.notification;
+      final android = message.notification?.android;
+      if (n == null || android == null) return;
+
+      _localNotifications.show(
+        n.hashCode,
+        n.title,
+        n.body,
+        NotificationDetails(
+          android: AndroidNotificationDetails(
+            _androidChannel.id,
+            _androidChannel.name,
+            channelDescription: _androidChannel.description,
+            importance: Importance.high,
+            priority: Priority.high,
+            icon: '@mipmap/ic_launcher',
+          ),
+        ),
+      );
     });
   }
 

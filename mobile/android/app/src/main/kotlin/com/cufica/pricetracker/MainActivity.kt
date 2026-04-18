@@ -1,4 +1,4 @@
-package com.pricetracker.mobile
+package com.cufica.pricetracker
 
 import io.flutter.embedding.android.FlutterActivity
 
