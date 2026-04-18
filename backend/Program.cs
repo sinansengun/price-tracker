@@ -6,6 +6,7 @@ using Google.Apis.Auth.OAuth2;
 using Google.Apis.Auth.OAuth2.Responses;
 using Hangfire;
 using Hangfire.PostgreSql;
+using Hangfire.Dashboard;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -24,6 +25,10 @@ var jwtKey = builder.Configuration["Jwt:Key"]
     ?? throw new InvalidOperationException("Jwt:Key not found.");
 var jwtIssuer = builder.Configuration["Jwt:Issuer"]!;
 var jwtAudience = builder.Configuration["Jwt:Audience"]!;
+var hangfireDashboardEnabled = builder.Configuration.GetValue("Hangfire:Dashboard:Enabled", builder.Environment.IsDevelopment());
+var hangfireDashboardPath = builder.Configuration["Hangfire:Dashboard:Path"] ?? "/hangfire";
+var hangfireDashboardUsername = builder.Configuration["Hangfire:Dashboard:Username"];
+var hangfireDashboardPassword = builder.Configuration["Hangfire:Dashboard:Password"];
 
 // EF Core + PostgreSQL
 builder.Services.AddDbContext<AppDbContext>(opt =>
@@ -291,9 +296,32 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 
-// Hangfire Dashboard (sadece development)
-if (app.Environment.IsDevelopment())
-    app.UseHangfireDashboard("/hangfire");
+// Hangfire Dashboard
+if (hangfireDashboardEnabled)
+{
+    if (app.Environment.IsDevelopment())
+    {
+        app.UseHangfireDashboard(hangfireDashboardPath);
+    }
+    else
+    {
+        if (string.IsNullOrWhiteSpace(hangfireDashboardUsername)
+            || string.IsNullOrWhiteSpace(hangfireDashboardPassword))
+        {
+            throw new InvalidOperationException("Hangfire dashboard production erişimi için Hangfire:Dashboard:Username ve Hangfire:Dashboard:Password ayarlanmalıdır.");
+        }
+
+        var dashboardOptions = new DashboardOptions
+        {
+            Authorization = new IDashboardAuthorizationFilter[]
+            {
+                new HangfireDashboardBasicAuthFilter(hangfireDashboardUsername, hangfireDashboardPassword)
+            }
+        };
+
+        app.UseHangfireDashboard(hangfireDashboardPath, dashboardOptions);
+    }
+}
 
 // Her 5 dakikada bir tüm ürünlerin fiyatını kontrol et
 var recurringJobManager = app.Services.GetRequiredService<IRecurringJobManager>();
