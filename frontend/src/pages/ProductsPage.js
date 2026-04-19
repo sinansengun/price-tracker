@@ -12,7 +12,7 @@ function StoreBadge({ store, url }) {
     const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
     return (_jsxs("span", { className: "inline-flex items-center gap-1 text-xs font-medium bg-brand-50 text-brand-700 border border-brand-200 px-2 py-0.5 rounded-full", children: [faviconUrl && _jsx("img", { src: faviconUrl, alt: "", className: "w-4 h-4 rounded-sm" }), store] }));
 }
-import { LineChart, Line, ResponsiveContainer, Tooltip } from 'recharts';
+import { LineChart, Line, ResponsiveContainer, Tooltip, YAxis } from 'recharts';
 import { getProducts, getLabels, createProduct, addProductLabel, removeProductLabel, createLabel, deleteLabel, clearToken, flattenProduct } from '../api/api';
 function AddProductModal({ onClose, onAdded }) {
     const [url, setUrl] = useState('');
@@ -55,6 +55,35 @@ function fmtDate(iso, includeTime = false) {
         day: 'numeric', month: 'short', year: 'numeric',
         ...(includeTime ? { hour: '2-digit', minute: '2-digit' } : {}),
     });
+}
+function localDayKey(date) {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+function buildLast30DaySeries(histories) {
+    const end = new Date();
+    end.setHours(0, 0, 0, 0);
+    const startMs = end.getTime() - 29 * 86400000;
+    const endExclusive = end.getTime() + 86400000;
+    const byDay = new Map();
+    for (const h of histories ?? []) {
+        const t = new Date(h.checkedAt).getTime();
+        if (Number.isNaN(t) || t < startMs || t >= endExclusive)
+            continue;
+        const key = localDayKey(new Date(t));
+        byDay.set(key, { price: h.price, checkedAt: h.checkedAt });
+    }
+    const series = [];
+    for (let i = 0; i < 30; i++) {
+        const day = new Date(startMs + i * 86400000);
+        const key = localDayKey(day);
+        const found = byDay.get(key);
+        series.push({
+            dayKey: key,
+            v: found?.price ?? null,
+            checkedAt: found?.checkedAt,
+        });
+    }
+    return series;
 }
 function LabelDropdown({ product, allLabels, onProductLabelsChange, onNewLabel }) {
     const [open, setOpen] = useState(false);
@@ -124,18 +153,23 @@ function LabelDropdown({ product, allLabels, onProductLabelsChange, onNewLabel }
                                 return (_jsxs("button", { onClick: () => handleToggle(l), className: "w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-gray-50 transition-colors", children: [_jsx("span", { className: "w-3 h-3 rounded-sm shrink-0", style: { backgroundColor: l.color } }), _jsx("span", { className: "text-xs text-gray-700 flex-1 truncate", children: l.name }), attached && _jsx("span", { className: "text-brand-600 text-xs", children: "\u2713" })] }, l.id));
                             }), filtered.length === 0 && !canCreate && (_jsx("p", { className: "px-3 py-2 text-xs text-gray-400", children: "E\u015Fle\u015Fen label yok" }))] })] }), document.body)] }));
 }
-function MiniChart({ histories }) {
-    if (!histories || histories.length < 2)
+function MiniChart({ points }) {
+    const prices = points
+        .map(p => p.v)
+        .filter((v) => v != null);
+    if (prices.length === 0)
         return null;
-    const data = [...histories]
-        .sort((a, b) => new Date(a.checkedAt).getTime() - new Date(b.checkedAt).getTime())
-        .map(h => ({ v: h.price }));
-    const prices = data.map(d => d.v);
     const flat = Math.min(...prices) === Math.max(...prices);
-    const color = flat ? '#94a3b8' : prices[prices.length - 1] < prices[0] ? '#16a34a' : '#dc2626';
-    return (_jsx(ResponsiveContainer, { width: "100%", height: 48, children: _jsxs(LineChart, { data: data, children: [_jsx(Line, { type: "monotone", dataKey: "v", stroke: color, strokeWidth: 2, dot: false, isAnimationActive: false }), _jsx(Tooltip, { content: ({ active, payload }) => active && payload?.length
-                        ? _jsx("div", { className: "bg-white border border-gray-200 rounded px-2 py-1 text-xs shadow", children: fmt(payload[0].value) })
-                        : null })] }) }));
+    const color = flat ? '#94a3b8' : '#2563eb';
+    const firstPrice = prices[0];
+    const maxDeviation = prices.reduce((max, p) => Math.max(max, Math.abs(p - firstPrice)), 0);
+    const basePadding = Math.max(firstPrice * 0.03, 1);
+    const halfRange = Math.max(maxDeviation * 1.15, basePadding);
+    const yMin = firstPrice - halfRange;
+    const yMax = firstPrice + halfRange;
+    return (_jsx("div", { className: "w-full rounded-lg border border-dashed border-gray-300 bg-white/70 px-1 py-1", children: _jsx(ResponsiveContainer, { width: "100%", height: 48, children: _jsxs(LineChart, { data: points, children: [_jsx(YAxis, { hide: true, domain: [yMin, yMax] }), _jsx(Line, { type: "linear", dataKey: "v", stroke: color, strokeWidth: 1.8, isAnimationActive: false, connectNulls: false, dot: false, activeDot: false }), _jsx(Tooltip, { content: ({ active, payload }) => active && payload?.length && payload[0].value != null
+                            ? _jsx("div", { className: "bg-white border border-gray-200 rounded px-2 py-1 text-xs shadow", children: fmt(payload[0].value) })
+                            : null })] }) }) }));
 }
 function ProductRow({ product, allLabels, onProductLabelsChange, onNewLabel, onLabelClick }) {
     const navigate = useNavigate();
@@ -144,29 +178,20 @@ function ProductRow({ product, allLabels, onProductLabelsChange, onNewLabel, onL
     const sorted = histories
         ? [...histories].sort((a, b) => new Date(a.checkedAt).getTime() - new Date(b.checkedAt).getTime())
         : [];
-    const first = sorted[0];
-    const last = sorted[sorted.length - 1];
+    const monthSeries = buildLast30DaySeries(sorted);
+    const monthWithPrice = monthSeries.filter((p) => p.v != null && !!p.checkedAt);
+    const first = monthWithPrice[0];
+    const last = monthWithPrice[monthWithPrice.length - 1];
     let pct = null;
     let pctUp = false;
-    if (first && last && first.price > 0) {
-        pct = ((last.price - first.price) / first.price) * 100;
+    if (first && last && first.v > 0) {
+        pct = ((last.v - first.v) / first.v) * 100;
         pctUp = pct > 0;
     }
-    let periodLabel = '';
-    if (first && last) {
-        const days = Math.round((new Date(last.checkedAt).getTime() - new Date(first.checkedAt).getTime()) / 86400000);
-        if (days < 2)
-            periodLabel = 'Son 1 gün';
-        else if (days < 31)
-            periodLabel = `Son ${days} gün`;
-        else if (days < 365)
-            periodLabel = `Son ${Math.round(days / 30)} ay`;
-        else
-            periodLabel = `Son ${Math.round(days / 365)} yıl`;
-    }
-    return (_jsxs("div", { className: "bg-white border border-gray-200 rounded-xl overflow-hidden cursor-pointer hover:shadow-md hover:border-brand-200 transition-all duration-150 group", onClick: () => navigate(`/products/${product.id}`), children: [_jsxs("div", { className: "flex", children: [_jsx("div", { className: "shrink-0 w-20 sm:w-36 h-20 sm:h-28 bg-gray-50 flex items-center justify-center p-2 border-r border-gray-100 overflow-hidden", children: imgSrc
+    const periodLabel = 'Son 1 ay';
+    return (_jsxs("div", { className: "bg-white border border-gray-200 rounded-xl overflow-hidden cursor-pointer hover:shadow-md hover:border-brand-200 transition-all duration-150 group", onClick: () => navigate(`/products/${product.id}`), children: [_jsxs("div", { className: "flex", children: [_jsx("div", { className: "shrink-0 w-24 sm:w-40 h-24 sm:h-32 bg-gray-50 flex items-center justify-center p-2 border-r border-gray-100 overflow-hidden", children: imgSrc
                             ? _jsx("img", { src: imgSrc, alt: product.name, className: "max-w-full max-h-full object-contain" })
-                            : _jsx("span", { className: "text-4xl", children: "\uD83D\uDECD\uFE0F" }) }), _jsxs("div", { className: "flex-1 min-w-0 px-3 sm:px-4 py-3 flex flex-col justify-between", children: [_jsx("p", { className: "text-sm font-semibold text-gray-900 leading-snug line-clamp-2 group-hover:text-brand-700 transition-colors", children: product.name || 'Yükleniyor...' }), _jsx("div", { className: "mt-2 space-y-0.5", children: product.currentPrice != null ? (_jsxs(_Fragment, { children: [_jsx("p", { className: "text-xl font-bold text-gray-900", children: fmt(product.currentPrice) }), product.initialPrice != null && product.initialPrice !== product.currentPrice && (_jsx("p", { className: "text-xs text-gray-400 line-through", children: fmt(product.initialPrice) }))] })) : (_jsx("p", { className: "text-sm text-gray-400", children: "Fiyat bekleniyor" })) }), _jsxs("div", { className: "mt-3 flex items-center gap-1.5 flex-wrap py-1.5", onClick: e => e.stopPropagation(), children: [product.store && _jsx(StoreBadge, { store: product.store, url: product.url }), product.labels?.map(l => (_jsx("button", { onClick: e => { e.stopPropagation(); onLabelClick(l.id); }, className: "text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded cursor-pointer hover:brightness-90 transition-all", style: { backgroundColor: l.color + '1A', color: l.color }, children: l.name }, l.id))), _jsx(LabelDropdown, { product: product, allLabels: allLabels, onProductLabelsChange: onProductLabelsChange, onNewLabel: onNewLabel }), product.targetPrice != null && (_jsxs("span", { className: "text-xs text-gray-400", children: ["\uD83C\uDFAF Hedef: ", fmt(product.targetPrice)] }))] }), _jsxs("p", { className: "mt-1 text-xs text-gray-400 hidden sm:block", children: ["Eklendi: ", fmtDate(product.createdAt), product.lastCheckedAt && _jsxs(_Fragment, { children: [" \u00A0\u00B7\u00A0 G\u00FCncellendi: ", fmtDate(product.lastCheckedAt, true)] })] })] }), _jsxs("div", { className: "hidden sm:flex shrink-0 w-52 border-l border-gray-100 bg-gray-50 flex-col items-center justify-between px-3 py-3 gap-1", children: [pct !== null && (_jsxs("div", { className: `flex items-center gap-1 text-xs font-bold ${pctUp ? 'text-red-500' : 'text-green-600'}`, children: [_jsxs("span", { children: [periodLabel, ":"] }), _jsxs("span", { children: [pctUp ? '▲' : '▼', " %", Math.abs(pct).toFixed(1)] })] })), _jsx("div", { className: "w-full", children: _jsx(MiniChart, { histories: product.priceHistories }) }), first && (_jsxs("p", { className: "text-[10px] text-gray-400 text-center leading-tight", children: [fmtDate(first.checkedAt), _jsx("br", {}), _jsx("span", { className: "font-medium text-gray-600", children: fmt(first.price) })] })), _jsx("button", { className: "mt-1 w-full text-xs text-brand-600 border border-brand-300 rounded-lg py-1 hover:bg-brand-50 transition-colors font-medium", onClick: e => { e.stopPropagation(); navigate(`/products/${product.id}`); }, children: "Detaya Git \u2192" })] })] }), product.priceHistories && product.priceHistories.length >= 2 && (_jsxs("div", { className: "sm:hidden border-t border-gray-100 bg-gray-50 px-3 pt-1 pb-2", onClick: e => e.stopPropagation(), children: [_jsxs("div", { className: "flex items-center justify-between mb-0.5", children: [pct !== null && (_jsxs("span", { className: `text-[10px] font-bold ${pctUp ? 'text-red-500' : 'text-green-600'}`, children: [pctUp ? '▲' : '▼', " %", Math.abs(pct).toFixed(1), " ", periodLabel && `(${periodLabel})`] })), first && (_jsxs("span", { className: "text-[10px] text-gray-400", children: ["Ba\u015Flang\u0131\u00E7: ", _jsx("span", { className: "font-medium text-gray-600", children: fmt(first.price) })] }))] }), _jsx(MiniChart, { histories: product.priceHistories })] }))] }));
+                            : _jsx("span", { className: "text-4xl", children: "\uD83D\uDECD\uFE0F" }) }), _jsxs("div", { className: "flex-1 min-w-0 px-3 sm:px-4 py-3 flex flex-col justify-between", children: [_jsx("p", { className: "text-sm font-semibold text-gray-900 leading-snug line-clamp-2 group-hover:text-brand-700 transition-colors", children: product.name || 'Yükleniyor...' }), _jsx("div", { className: "mt-2 space-y-0.5", children: product.currentPrice != null ? (_jsxs(_Fragment, { children: [_jsx("p", { className: "text-xl font-bold text-gray-900", children: fmt(product.currentPrice) }), product.initialPrice != null && product.initialPrice !== product.currentPrice && (_jsx("p", { className: "text-xs text-gray-400 line-through", children: fmt(product.initialPrice) }))] })) : (_jsx("p", { className: "text-sm text-gray-400", children: "Fiyat bekleniyor" })) }), _jsxs("div", { className: "mt-3 flex items-center gap-1.5 flex-wrap py-1.5", onClick: e => e.stopPropagation(), children: [product.store && _jsx(StoreBadge, { store: product.store, url: product.url }), product.labels?.map(l => (_jsx("button", { onClick: e => { e.stopPropagation(); onLabelClick(l.id); }, className: "text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded cursor-pointer hover:brightness-90 transition-all", style: { backgroundColor: l.color + '1A', color: l.color }, children: l.name }, l.id))), _jsx(LabelDropdown, { product: product, allLabels: allLabels, onProductLabelsChange: onProductLabelsChange, onNewLabel: onNewLabel }), product.targetPrice != null && (_jsxs("span", { className: "text-xs text-gray-400", children: ["\uD83C\uDFAF Hedef: ", fmt(product.targetPrice)] }))] }), _jsxs("p", { className: "mt-1 text-xs text-gray-400 hidden sm:block", children: ["Eklendi: ", fmtDate(product.createdAt), product.lastCheckedAt && _jsxs(_Fragment, { children: [" \u00A0\u00B7\u00A0 G\u00FCncellendi: ", fmtDate(product.lastCheckedAt, true)] })] })] }), _jsxs("div", { className: "hidden sm:flex shrink-0 w-52 border-l border-gray-100 bg-gray-50 flex-col items-center justify-between px-3 py-3 gap-1", children: [pct !== null && (_jsxs("div", { className: `flex items-center gap-1 text-xs font-bold ${pctUp ? 'text-red-500' : 'text-green-600'}`, children: [_jsxs("span", { children: [periodLabel, ":"] }), _jsxs("span", { children: [pctUp ? '▲' : '▼', " %", Math.abs(pct).toFixed(1)] })] })), _jsx("div", { className: "w-full", children: _jsx(MiniChart, { points: monthSeries }) }), first && (_jsxs("p", { className: "text-[10px] text-gray-400 text-center leading-tight", children: [fmtDate(first.checkedAt), _jsx("br", {}), _jsx("span", { className: "font-medium text-gray-600", children: fmt(first.v) })] })), _jsx("button", { className: "mt-1 w-full text-xs text-brand-600 border border-brand-300 rounded-lg py-1 hover:bg-brand-50 transition-colors font-medium", onClick: e => { e.stopPropagation(); navigate(`/products/${product.id}`); }, children: "Detaya Git \u2192" })] })] }), monthWithPrice.length >= 1 && (_jsxs("div", { className: "sm:hidden border-t border-gray-100 bg-gray-50 px-3 pt-1 pb-2", onClick: e => e.stopPropagation(), children: [_jsxs("div", { className: "flex items-center justify-between mb-0.5", children: [pct !== null && (_jsxs("span", { className: `text-[10px] font-bold ${pctUp ? 'text-red-500' : 'text-green-600'}`, children: [pctUp ? '▲' : '▼', " %", Math.abs(pct).toFixed(1), " ", periodLabel && `(${periodLabel})`] })), first && (_jsxs("span", { className: "text-[10px] text-gray-400", children: ["Ba\u015Flang\u0131\u00E7: ", _jsx("span", { className: "font-medium text-gray-600", children: fmt(first.v) })] }))] }), _jsx(MiniChart, { points: monthSeries })] }))] }));
 }
 function ProductCard({ product }) {
     const navigate = useNavigate();

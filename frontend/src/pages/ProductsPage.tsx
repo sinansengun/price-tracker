@@ -12,7 +12,7 @@ function StoreBadge({ store, url }: { store: string; url: string }) {
     </span>
   )
 }
-import { LineChart, Line, ResponsiveContainer, Tooltip } from 'recharts'
+import { LineChart, Line, ResponsiveContainer, Tooltip, YAxis } from 'recharts'
 import {
   getProducts, getLabels, createProduct, addProductLabel, removeProductLabel, createLabel, deleteLabel,
   clearToken, flattenProduct,
@@ -117,6 +117,46 @@ function fmtDate(iso: string, includeTime = false) {
     day: 'numeric', month: 'short', year: 'numeric',
     ...(includeTime ? { hour: '2-digit', minute: '2-digit' } : {}),
   })
+}
+
+type ChartPoint = {
+  dayKey: string
+  v: number | null
+  checkedAt?: string
+}
+
+function localDayKey(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+
+function buildLast30DaySeries(histories?: PriceHistory[]): ChartPoint[] {
+  const end = new Date()
+  end.setHours(0, 0, 0, 0)
+  const startMs = end.getTime() - 29 * 86_400_000
+  const endExclusive = end.getTime() + 86_400_000
+
+  const byDay = new Map<string, { price: number; checkedAt: string }>()
+
+  for (const h of histories ?? []) {
+    const t = new Date(h.checkedAt).getTime()
+    if (Number.isNaN(t) || t < startMs || t >= endExclusive) continue
+    const key = localDayKey(new Date(t))
+    byDay.set(key, { price: h.price, checkedAt: h.checkedAt })
+  }
+
+  const series: ChartPoint[] = []
+  for (let i = 0; i < 30; i++) {
+    const day = new Date(startMs + i * 86_400_000)
+    const key = localDayKey(day)
+    const found = byDay.get(key)
+    series.push({
+      dayKey: key,
+      v: found?.price ?? null,
+      checkedAt: found?.checkedAt,
+    })
+  }
+
+  return series
 }
 
 function LabelDropdown({
@@ -262,28 +302,47 @@ function LabelDropdown({
   )
 }
 
-function MiniChart({ histories }: { histories?: PriceHistory[] }) {
-  if (!histories || histories.length < 2) return null
-  const data = [...histories]
-    .sort((a, b) => new Date(a.checkedAt).getTime() - new Date(b.checkedAt).getTime())
-    .map(h => ({ v: h.price }))
-  const prices = data.map(d => d.v)
+function MiniChart({ points }: { points: ChartPoint[] }) {
+  const prices = points
+    .map(p => p.v)
+    .filter((v): v is number => v != null)
+
+  if (prices.length === 0) return null
+
   const flat = Math.min(...prices) === Math.max(...prices)
-  const color = flat ? '#94a3b8' : prices[prices.length - 1] < prices[0] ? '#16a34a' : '#dc2626'
+  const color = flat ? '#94a3b8' : '#2563eb'
+  const firstPrice = prices[0]
+  const maxDeviation = prices.reduce((max, p) => Math.max(max, Math.abs(p - firstPrice)), 0)
+  const basePadding = Math.max(firstPrice * 0.03, 1)
+  const halfRange = Math.max(maxDeviation * 1.15, basePadding)
+  const yMin = firstPrice - halfRange
+  const yMax = firstPrice + halfRange
 
   return (
-    <ResponsiveContainer width="100%" height={48}>
-      <LineChart data={data}>
-        <Line type="monotone" dataKey="v" stroke={color} strokeWidth={2} dot={false} isAnimationActive={false} />
-        <Tooltip
-          content={({ active, payload }) =>
-            active && payload?.length
-              ? <div className="bg-white border border-gray-200 rounded px-2 py-1 text-xs shadow">{fmt(payload[0].value as number)}</div>
-              : null
-          }
-        />
-      </LineChart>
-    </ResponsiveContainer>
+    <div className="w-full rounded-lg border border-dashed border-gray-300 bg-white/70 px-1 py-1">
+      <ResponsiveContainer width="100%" height={48}>
+        <LineChart data={points}>
+          <YAxis hide domain={[yMin, yMax]} />
+          <Line
+            type="linear"
+            dataKey="v"
+            stroke={color}
+            strokeWidth={1.8}
+            isAnimationActive={false}
+            connectNulls={false}
+            dot={false}
+            activeDot={false}
+          />
+          <Tooltip
+            content={({ active, payload }) =>
+              active && payload?.length && payload[0].value != null
+                ? <div className="bg-white border border-gray-200 rounded px-2 py-1 text-xs shadow">{fmt(payload[0].value as number)}</div>
+                : null
+            }
+          />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
   )
 }
 
@@ -303,24 +362,19 @@ function ProductRow({
   const sorted = histories
     ? [...histories].sort((a, b) => new Date(a.checkedAt).getTime() - new Date(b.checkedAt).getTime())
     : []
-  const first = sorted[0]
-  const last  = sorted[sorted.length - 1]
+  const monthSeries = buildLast30DaySeries(sorted)
+  const monthWithPrice = monthSeries.filter((p): p is ChartPoint & { v: number; checkedAt: string } => p.v != null && !!p.checkedAt)
+  const first = monthWithPrice[0]
+  const last  = monthWithPrice[monthWithPrice.length - 1]
 
   let pct: number | null = null
   let pctUp = false
-  if (first && last && first.price > 0) {
-    pct   = ((last.price - first.price) / first.price) * 100
+  if (first && last && first.v > 0) {
+    pct   = ((last.v - first.v) / first.v) * 100
     pctUp = pct > 0
   }
 
-  let periodLabel = ''
-  if (first && last) {
-    const days = Math.round((new Date(last.checkedAt).getTime() - new Date(first.checkedAt).getTime()) / 86_400_000)
-    if      (days <   2) periodLabel = 'Son 1 gün'
-    else if (days <  31) periodLabel = `Son ${days} gün`
-    else if (days < 365) periodLabel = `Son ${Math.round(days / 30)} ay`
-    else                 periodLabel = `Son ${Math.round(days / 365)} yıl`
-  }
+  const periodLabel = 'Son 1 ay'
 
   return (
     <div
@@ -329,7 +383,7 @@ function ProductRow({
     >
       <div className="flex">
         <div
-          className="shrink-0 w-20 sm:w-36 h-20 sm:h-28 bg-gray-50 flex items-center justify-center p-2 border-r border-gray-100 overflow-hidden"
+          className="shrink-0 w-24 sm:w-40 h-24 sm:h-32 bg-gray-50 flex items-center justify-center p-2 border-r border-gray-100 overflow-hidden"
         >
           {imgSrc
             ? <img src={imgSrc} alt={product.name} className="max-w-full max-h-full object-contain" />
@@ -396,13 +450,13 @@ function ProductRow({
           )}
 
           <div className="w-full">
-            <MiniChart histories={product.priceHistories} />
+            <MiniChart points={monthSeries} />
           </div>
 
           {first && (
             <p className="text-[10px] text-gray-400 text-center leading-tight">
               {fmtDate(first.checkedAt)}<br />
-              <span className="font-medium text-gray-600">{fmt(first.price)}</span>
+              <span className="font-medium text-gray-600">{fmt(first.v)}</span>
             </p>
           )}
 
@@ -416,7 +470,7 @@ function ProductRow({
       </div>
 
       {/* Mobil grafik şeridi */}
-      {product.priceHistories && product.priceHistories.length >= 2 && (
+      {monthWithPrice.length >= 1 && (
         <div className="sm:hidden border-t border-gray-100 bg-gray-50 px-3 pt-1 pb-2" onClick={e => e.stopPropagation()}>
           <div className="flex items-center justify-between mb-0.5">
             {pct !== null && (
@@ -426,11 +480,11 @@ function ProductRow({
             )}
             {first && (
               <span className="text-[10px] text-gray-400">
-                Başlangıç: <span className="font-medium text-gray-600">{fmt(first.price)}</span>
+                Başlangıç: <span className="font-medium text-gray-600">{fmt(first.v)}</span>
               </span>
             )}
           </div>
-          <MiniChart histories={product.priceHistories} />
+          <MiniChart points={monthSeries} />
         </div>
       )}
     </div>
