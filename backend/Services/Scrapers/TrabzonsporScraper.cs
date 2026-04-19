@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Globalization;
 
 namespace PriceTracker.Services.Scrapers;
 
@@ -74,6 +75,18 @@ public class TrabzonsporScraper(
 
             if (price == null) return null;
 
+            // Sayfa döviz modunda (örn. EUR) render edildiyse fiyat TRY'ye çevrilmeden gelebilir.
+            // Ticimax modelindeki currencies[].kur değerini kullanarak TRY'ye normalize ediyoruz.
+            var currencyCode = root.TryGetProperty("productCurrency", out var currencyEl)
+                ? currencyEl.GetString()
+                : null;
+            if (!string.IsNullOrWhiteSpace(currencyCode) &&
+                !currencyCode.Equals("TRY", StringComparison.OrdinalIgnoreCase) &&
+                TryGetCurrencyRateToTry(root, currencyCode) is { } rateToTry)
+            {
+                price = decimal.Round(price.Value * rateToTry, 2, MidpointRounding.AwayFromZero);
+            }
+
             string? imageUrl = null;
             if (root.TryGetProperty("productImages", out var productImages) &&
                 productImages.ValueKind == JsonValueKind.Array &&
@@ -143,5 +156,36 @@ public class TrabzonsporScraper(
             Logger.LogDebug(ex, "Trabzonspor OG extraction hatası");
             return null;
         }
+    }
+
+    private static decimal? TryGetCurrencyRateToTry(JsonElement root, string currencyCode)
+    {
+        if (!root.TryGetProperty("currencies", out var currencies) ||
+            currencies.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        foreach (var currency in currencies.EnumerateArray())
+        {
+            if (!currency.TryGetProperty("dovizKodu", out var codeEl)) continue;
+            var code = codeEl.GetString();
+            if (!string.Equals(code, currencyCode, StringComparison.OrdinalIgnoreCase)) continue;
+
+            if (!currency.TryGetProperty("kur", out var rateEl)) return null;
+
+            if (rateEl.ValueKind == JsonValueKind.Number && rateEl.TryGetDecimal(out var numericRate))
+                return numericRate;
+
+            if (rateEl.ValueKind == JsonValueKind.String &&
+                decimal.TryParse(rateEl.GetString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var stringRate))
+            {
+                return stringRate;
+            }
+
+            return null;
+        }
+
+        return null;
     }
 }
