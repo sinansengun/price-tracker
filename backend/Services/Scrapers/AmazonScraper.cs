@@ -13,12 +13,7 @@ public class AmazonScraper(ILogger<AmazonScraper> logger, IHttpClientFactory htt
         // Kısa URL'leri (amzn.eu, amzn.to) gerçek Amazon URL'ine çevir
         if (url.Contains("amzn.eu") || url.Contains("amzn.to"))
         {
-            var client = HttpClientFactory.CreateClient("Scraper");
-            var head = new HttpRequestMessage(HttpMethod.Head, url);
-            using var resp = await client.SendAsync(head, HttpCompletionOption.ResponseHeadersRead);
-            var resolved = resp.RequestMessage?.RequestUri?.ToString() ?? url;
-            Logger.LogInformation("Amazon short URL resolved: {Short} → {Long}", url, resolved);
-            url = resolved;
+            url = await ResolveAmazonShortUrlAsync(url);
         }
 
         Logger.LogInformation("Amazon: Fetching HTML from {Url}", url);
@@ -39,6 +34,34 @@ public class AmazonScraper(ILogger<AmazonScraper> logger, IHttpClientFactory htt
 
         // 2. Amazon-specific HTML patterns
         return TryExtractFromAmazonHtml(html, url, store);
+    }
+
+    private async Task<string> ResolveAmazonShortUrlAsync(string shortUrl)
+    {
+        try
+        {
+            var client = HttpClientFactory.CreateClient("Scraper");
+
+            // amzn.eu bazı linklerde HEAD'e 404 döndürüp GET'te doğru yönlendiriyor.
+            using var request = new HttpRequestMessage(HttpMethod.Get, shortUrl);
+            request.Headers.TryAddWithoutValidation("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
+
+            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+            var resolved = response.RequestMessage?.RequestUri?.ToString() ?? shortUrl;
+
+            Logger.LogInformation(
+                "Amazon short URL resolved: {Short} -> {Long} (HTTP {Status})",
+                shortUrl,
+                resolved,
+                (int)response.StatusCode);
+
+            return resolved;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Amazon short URL resolve failed, using original URL: {Url}", shortUrl);
+            return shortUrl;
+        }
     }
 
     // ── Amazon HTML extraction ────────────────────────────────────────────

@@ -95,11 +95,16 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                   Center(
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(12),
-                      child: Image.network(
-                        p.imageUrl!,
-                        height: 180,
-                        fit: BoxFit.contain,
-                        errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                      child: Container(
+                        width: double.infinity,
+                        constraints: const BoxConstraints(maxHeight: 280),
+                        color: Colors.white,
+                        child: Image.network(
+                          p.imageUrl!,
+                          height: 260,
+                          fit: BoxFit.contain,
+                          errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                        ),
                       ),
                     ),
                   ),

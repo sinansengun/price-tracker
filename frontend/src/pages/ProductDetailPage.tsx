@@ -188,10 +188,10 @@ export default function ProductDetailPage() {
       <main className="max-w-4xl mx-auto px-4 py-8 space-y-6">
 
         {/* Product info */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 flex gap-6">
-          <div className="shrink-0 w-32 h-32 bg-gray-50 rounded-xl flex items-center justify-center overflow-hidden">
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 flex flex-col sm:flex-row gap-6">
+          <div className="shrink-0 w-full sm:w-48 h-56 sm:h-48 bg-gray-50 rounded-xl flex items-center justify-center overflow-hidden">
             {imgSrc ? (
-              <img src={imgSrc} alt={p.name} className="w-full h-full object-contain p-2" />
+              <img src={imgSrc} alt={p.name} className="w-full h-full object-contain p-4" />
             ) : (
               <span className="text-4xl">🛍️</span>
             )}
