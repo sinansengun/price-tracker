@@ -116,7 +116,7 @@ class ShareViewController: UIViewController {
 
     private func saveAndOpen(_ urlString: String) {
         // UserDefaults'a kaydet (ana uygulama açıldığında okur)
-        let defaults = UserDefaults(suiteName: "group.com.pricetracker.mobile")
+        let defaults = UserDefaults(suiteName: "group.com.cufica.pricetracker")
         defaults?.set(urlString, forKey: "sharedUrl")
         defaults?.synchronize()
 

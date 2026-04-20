@@ -21,14 +21,14 @@ import UIKit
             .registrar(forPlugin: "SharePlugin")?.messenger() else { return }
 
     AppDelegate.shareChannel = FlutterMethodChannel(
-      name: "com.pricetracker.mobile/share",
+      name: "com.cufica.pricetracker/share",
       binaryMessenger: messenger
     )
 
     AppDelegate.shareChannel?.setMethodCallHandler { call, result in
       if call.method == "getPendingUrl" {
         // App Group UserDefaults'tan oku (Extension'ın bıraktığı URL)
-        let userDefaults = UserDefaults(suiteName: "group.com.pricetracker.mobile")
+        let userDefaults = UserDefaults(suiteName: "group.com.cufica.pricetracker")
         if let storedUrl = userDefaults?.string(forKey: "sharedUrl"), !storedUrl.isEmpty {
           userDefaults?.removeObject(forKey: "sharedUrl")
           result(storedUrl)
@@ -73,7 +73,7 @@ func handleIncomingURL(_ url: URL) {
   else { return }
   // UserDefaults'u hemen temizle: didChangeAppLifecycleState → getPendingUrl
   // ile URL scheme → sharedUrl channel yollarının aynı URL'yi çift işlemesini engelle.
-  UserDefaults(suiteName: "group.com.pricetracker.mobile")?.removeObject(forKey: "sharedUrl")
+  UserDefaults(suiteName: "group.com.cufica.pricetracker")?.removeObject(forKey: "sharedUrl")
   AppDelegate.sendSharedUrl(urlParam)
 }
 

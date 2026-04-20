@@ -28,7 +28,7 @@
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 			<key>CFBundleURLName</key>
-			<string>com.pricetracker.mobile</string>
+			<string>com.cufica.pricetracker</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>pricetracker</string>

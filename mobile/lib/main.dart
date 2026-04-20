@@ -20,7 +20,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
 }
 
-const _shareChannel = MethodChannel('com.pricetracker.mobile/share');
+const _shareChannel = MethodChannel('com.cufica.pricetracker/share');
 
 // Ürün ekle dialog'unu dışarıdan tetiklemek için global key
 final addProductKey = GlobalKey<ProductsScreenState>();
@@ -41,7 +41,15 @@ void main() async {
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
   const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
-  const initSettings = InitializationSettings(android: androidInit);
+  const iosInit = DarwinInitializationSettings(
+    requestAlertPermission: false,
+    requestBadgePermission: false,
+    requestSoundPermission: false,
+  );
+  const initSettings = InitializationSettings(
+    android: androidInit,
+    iOS: iosInit,
+  );
   await _localNotifications.initialize(initSettings);
   await _localNotifications
       .resolvePlatformSpecificImplementation<
