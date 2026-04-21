@@ -5,14 +5,14 @@ function StoreBadge({ store, url }: { store: string; url: string }) {
   const domain = (() => { try { return new URL(url).hostname } catch { return '' } })()
   const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : ''
   return (
-    <span className="inline-flex items-center gap-1 text-xs font-medium bg-brand-100 text-brand-700 px-2 py-0.5 rounded-full">
-      {faviconUrl && <img src={faviconUrl} alt="" className="w-4 h-4 rounded-sm" />}
+    <span className="inline-flex items-center gap-1.5 text-sm font-medium bg-brand-100 text-brand-700 px-2.5 py-1 rounded-full">
+      {faviconUrl && <img src={faviconUrl} alt="" className="w-5 h-5 rounded-sm" />}
       {store}
     </span>
   )
 }
 import {
-  LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer
+  LineChart, Line, ResponsiveContainer, Tooltip, YAxis
 } from 'recharts'
 import {
   getProduct, checkProduct, deleteProduct, getLabels, createLabel, addProductLabel, removeProductLabel,
@@ -31,19 +31,86 @@ function fmtDate(iso: string) {
   })
 }
 
-function fmtDateShort(iso: string) {
-  return new Date(iso).toLocaleDateString('tr-TR', {
-    day: '2-digit', month: 'short',
-  })
+type DetailChartPoint = {
+  dayKey: string
+  v: number | null
+  checkedAt?: string
 }
 
-// ── Custom chart tooltip ──────────────────────────────────────────────────
-function CustomTooltip({ active, payload, label }: any) {
-  if (!active || !payload?.length) return null
+function localDayKey(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+
+function buildLast30DaySeries(histories?: Product['priceHistories']): DetailChartPoint[] {
+  const end = new Date()
+  end.setHours(0, 0, 0, 0)
+  const startMs = end.getTime() - 29 * 86_400_000
+  const endExclusive = end.getTime() + 86_400_000
+
+  const byDay = new Map<string, { price: number; checkedAt: string }>()
+
+  for (const h of histories ?? []) {
+    const t = new Date(h.checkedAt).getTime()
+    if (Number.isNaN(t) || t < startMs || t >= endExclusive) continue
+    const key = localDayKey(new Date(t))
+    byDay.set(key, { price: h.price, checkedAt: h.checkedAt })
+  }
+
+  const series: DetailChartPoint[] = []
+  for (let i = 0; i < 30; i++) {
+    const day = new Date(startMs + i * 86_400_000)
+    const key = localDayKey(day)
+    const found = byDay.get(key)
+    series.push({
+      dayKey: key,
+      v: found?.price ?? null,
+      checkedAt: found?.checkedAt,
+    })
+  }
+
+  return series
+}
+
+function DetailMiniChart({ points }: { points: DetailChartPoint[] }) {
+  const prices = points
+    .map(p => p.v)
+    .filter((v): v is number => v != null)
+
+  if (prices.length === 0) return null
+
+  const flat = Math.min(...prices) === Math.max(...prices)
+  const color = flat ? '#94a3b8' : '#2563eb'
+  const firstPrice = prices[0]
+  const maxDeviation = prices.reduce((max, p) => Math.max(max, Math.abs(p - firstPrice)), 0)
+  const basePadding = Math.max(firstPrice * 0.03, 1)
+  const halfRange = Math.max(maxDeviation * 1.15, basePadding)
+  const yMin = firstPrice - halfRange
+  const yMax = firstPrice + halfRange
+
   return (
-    <div className="bg-white border border-gray-200 rounded-xl shadow-md px-3 py-2 text-sm">
-      <p className="text-gray-500 text-xs mb-1">{label}</p>
-      <p className="font-bold text-gray-900">{fmt(payload[0].value)}</p>
+    <div className="w-full rounded-lg border border-dashed border-gray-300 bg-white/70 px-2 py-2">
+      <ResponsiveContainer width="100%" height={108}>
+        <LineChart data={points}>
+          <YAxis hide domain={[yMin, yMax]} />
+          <Line
+            type="linear"
+            dataKey="v"
+            stroke={color}
+            strokeWidth={1.8}
+            isAnimationActive={false}
+            connectNulls={false}
+            dot={false}
+            activeDot={false}
+          />
+          <Tooltip
+            content={({ active, payload }) =>
+              active && payload?.length && payload[0].value != null
+                ? <div className="bg-white border border-gray-200 rounded px-2 py-1 text-xs shadow">{fmt(payload[0].value as number)}</div>
+                : null
+            }
+          />
+        </LineChart>
+      </ResponsiveContainer>
     </div>
   )
 }
@@ -162,13 +229,8 @@ export default function ProductDetailPage() {
     ? ((p.currentPrice - p.initialPrice) / p.initialPrice) * 100
     : null
 
-  const chartData = [...(p?.priceHistories ?? [])]
-    .sort((a, b) => new Date(a.checkedAt).getTime() - new Date(b.checkedAt).getTime())
-    .map(h => ({ date: fmtDateShort(h.checkedAt), price: h.price, full: h.checkedAt }))
-
-  const minPrice = Math.min(...chartData.map(d => d.price))
-  const maxPrice = Math.max(...chartData.map(d => d.price))
-  const padding  = (maxPrice - minPrice) * 0.1 || 100
+  const detailChartPoints = buildLast30DaySeries(p?.priceHistories)
+  const hasChartData = detailChartPoints.some(point => point.v != null)
 
   return (
     <div className="min-h-screen">
@@ -189,7 +251,7 @@ export default function ProductDetailPage() {
 
         {/* Product info */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 flex flex-col sm:flex-row gap-6">
-          <div className="shrink-0 w-full sm:w-48 h-56 sm:h-48 bg-gray-50 rounded-xl flex items-center justify-center overflow-hidden">
+          <div className="shrink-0 w-full sm:w-64 h-72 sm:h-64 bg-gray-50 rounded-xl flex items-center justify-center overflow-hidden">
             {imgSrc ? (
               <img src={imgSrc} alt={p.name} className="w-full h-full object-contain p-4" />
             ) : (
@@ -197,7 +259,7 @@ export default function ProductDetailPage() {
             )}
           </div>
 
-          <div className="flex-1 min-w-0 space-y-3">
+          <div className="flex-1 min-w-0 space-y-3 sm:min-h-48 flex flex-col">
             <div className="flex items-start gap-2 flex-wrap">
               {p.store && <StoreBadge store={p.store} url={p.url} />}
               <a
@@ -243,7 +305,7 @@ export default function ProductDetailPage() {
             <button
               onClick={handleCheck}
               disabled={checking}
-              className="inline-flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2 rounded-xl transition-colors disabled:opacity-60"
+              className="self-start inline-flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2 rounded-xl transition-colors disabled:opacity-60"
             >
               {checking ? (
                 <>
@@ -261,7 +323,7 @@ export default function ProductDetailPage() {
                 navigate('/')
               }}
               disabled={deleting}
-              className="inline-flex items-center gap-2 bg-red-50 hover:bg-red-100 text-red-600 text-sm font-medium px-4 py-2 rounded-xl transition-colors disabled:opacity-60"
+              className="self-start inline-flex items-center gap-2 bg-red-50 hover:bg-red-100 text-red-600 text-sm font-medium px-4 py-2 rounded-xl transition-colors disabled:opacity-60"
             >
               {deleting ? 'Siliniyor...' : '🗑 Ürünü Sil'}
             </button>
@@ -353,62 +415,18 @@ export default function ProductDetailPage() {
                 </div>
               </div>
             </div>
+
+            {hasChartData && (
+              <div className="mt-2 w-full sm:w-80 self-start">
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <h3 className="text-sm font-bold text-gray-900 text-left">Fiyat Geçmişi</h3>
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 text-right">Son 1 ay</p>
+                </div>
+                <DetailMiniChart points={detailChartPoints} />
+              </div>
+            )}
           </div>
         </div>
-
-        {/* Price chart */}
-        {chartData.length > 1 && (
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-            <h2 className="text-base font-bold text-gray-900 mb-4">Fiyat Geçmişi</h2>
-            <ResponsiveContainer width="100%" height={220}>
-              <LineChart data={chartData} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis
-                  dataKey="date"
-                  tick={{ fontSize: 11, fill: '#9ca3af' }}
-                  tickLine={false}
-                  axisLine={false}
-                />
-                <YAxis
-                  domain={[minPrice - padding, maxPrice + padding]}
-                  tick={{ fontSize: 11, fill: '#9ca3af' }}
-                  tickLine={false}
-                  axisLine={false}
-                  tickFormatter={v => v.toLocaleString('tr-TR')}
-                  width={70}
-                />
-                <Tooltip content={<CustomTooltip />} />
-                <Line
-                  type="monotone"
-                  dataKey="price"
-                  stroke="#2563eb"
-                  strokeWidth={2}
-                  dot={{ fill: '#2563eb', r: 3 }}
-                  activeDot={{ r: 5 }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        )}
-
-        {/* Price history table */}
-        {(p?.priceHistories ?? []).length > 0 && (
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-100">
-              <h2 className="text-base font-bold text-gray-900">Kontrol Kayıtları</h2>
-            </div>
-            <div className="divide-y divide-gray-50">
-              {[...(p?.priceHistories ?? [])]
-                .sort((a, b) => new Date(b.checkedAt).getTime() - new Date(a.checkedAt).getTime())
-                .map((h, i) => (
-                  <div key={i} className="flex items-center justify-between px-6 py-3">
-                    <span className="text-sm text-gray-500">{fmtDate(h.checkedAt)}</span>
-                    <span className="text-sm font-semibold text-gray-900">{fmt(h.price)}</span>
-                  </div>
-                ))}
-            </div>
-          </div>
-        )}
 
       </main>
     </div>
