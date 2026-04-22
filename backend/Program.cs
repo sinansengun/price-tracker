@@ -293,22 +293,71 @@ if (debugEndpointsEnabled)
         };
 
         var response = await FirebaseMessaging.DefaultInstance.SendEachForMulticastAsync(message);
+        var tokenProvider = FirebaseAdmin.FirebaseApp.DefaultInstance.Options.Credential.UnderlyingCredential as ITokenAccess;
+        var accessToken = tokenProvider == null ? null : await tokenProvider.GetAccessTokenForRequestAsync();
+        var projectId = FirebaseAdmin.FirebaseApp.DefaultInstance.Options.ProjectId;
 
-        var failures = response.Responses
+        var failedResponses = response.Responses
             .Select((r, i) => new { r, i })
             .Where(x => !x.r.IsSuccess)
-            .Select(x => new
+            .ToList();
+
+        var failures = new List<object>();
+        foreach (var x in failedResponses)
+        {
+            string? fallbackHttpV1Status = null;
+            string? fallbackHttpV1Body = null;
+
+            if (!string.IsNullOrWhiteSpace(accessToken) && !string.IsNullOrWhiteSpace(projectId))
+            {
+                var fallbackPayload = new
+                {
+                    message = new
+                    {
+                        token = tokens[x.i],
+                        notification = new
+                        {
+                            title = "Price Tracker Test",
+                            body = $"Fallback test push at {DateTime.UtcNow:HH:mm:ss} UTC"
+                        },
+                        data = new Dictionary<string, string>
+                        {
+                            ["type"] = "debug_test_fallback",
+                            ["sentAtUtc"] = DateTime.UtcNow.ToString("O")
+                        }
+                    }
+                };
+
+                using var fallbackHttp = new HttpClient();
+                using var request = new HttpRequestMessage(HttpMethod.Post,
+                    $"https://fcm.googleapis.com/v1/projects/{projectId}/messages:send");
+                request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {accessToken}");
+                request.Content = new StringContent(JsonSerializer.Serialize(fallbackPayload), Encoding.UTF8, "application/json");
+
+                var fallbackResponse = await fallbackHttp.SendAsync(request);
+                fallbackHttpV1Status = ((int)fallbackResponse.StatusCode).ToString();
+                fallbackHttpV1Body = await fallbackResponse.Content.ReadAsStringAsync();
+            }
+
+            var fmEx = x.r.Exception as FirebaseMessagingException;
+            failures.Add(new
             {
                 tokenPreview = tokens[x.i][..Math.Min(20, tokens[x.i].Length)],
-                error = x.r.Exception?.Message
-            })
-            .ToList();
+                error = x.r.Exception?.Message,
+                exceptionType = x.r.Exception?.GetType().FullName,
+                innerError = x.r.Exception?.InnerException?.Message,
+                messagingErrorCode = fmEx?.MessagingErrorCode.ToString(),
+                fallbackHttpV1Status,
+                fallbackHttpV1Body
+            });
+        }
 
         return Results.Ok(new
         {
             attempted = tokens.Count,
             success = response.SuccessCount,
             failure = response.FailureCount,
+            projectId,
             failures
         });
     });

@@ -142,6 +142,11 @@ class _PriceTrackerAppState extends State<PriceTrackerApp>
   Future<void> _setupFcm() async {
     final messaging = FirebaseMessaging.instance;
     await messaging.requestPermission(alert: true, badge: true, sound: true);
+    await messaging.setForegroundNotificationPresentationOptions(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
 
     // iOS'ta önce APNs token'ın gelmesini bekle
     if (defaultTargetPlatform == TargetPlatform.iOS) {
@@ -175,7 +180,11 @@ class _PriceTrackerAppState extends State<PriceTrackerApp>
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
       final n = message.notification;
       final android = message.notification?.android;
-      if (n == null || android == null) return;
+      if (n == null) return;
+      if (defaultTargetPlatform != TargetPlatform.android || android == null) {
+        // iOS foreground'da sistem sunumu setForeground... ile yönetiliyor.
+        return;
+      }
 
       _localNotifications.show(
         n.hashCode,
