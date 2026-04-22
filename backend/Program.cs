@@ -160,11 +160,27 @@ catch (Exception ex)
 
 var app = builder.Build();
 
-if (app.Environment.IsDevelopment())
+var debugEndpointsEnabled = app.Environment.IsDevelopment()
+    || app.Configuration.GetValue("DebugEndpoints:Enabled", false);
+var debugEndpointsApiKey = app.Configuration["DebugEndpoints:ApiKey"];
+
+if (debugEndpointsEnabled && !app.Environment.IsDevelopment() && string.IsNullOrWhiteSpace(debugEndpointsApiKey))
+{
+    throw new InvalidOperationException("Debug endpoints production'da açılacaksa DebugEndpoints:ApiKey zorunludur.");
+}
+
+if (debugEndpointsEnabled)
 {
     // Geçici debug endpoint – Firebase credential durumu
-    app.MapGet("/api/debug/firebase", async () =>
+    app.MapGet("/api/debug/firebase", async (HttpContext ctx) =>
     {
+        if (!app.Environment.IsDevelopment())
+        {
+            if (!ctx.Request.Headers.TryGetValue("X-Debug-Key", out var providedKey)
+                || providedKey != debugEndpointsApiKey)
+                return Results.Unauthorized();
+        }
+
         var json = Environment.GetEnvironmentVariable("FIREBASE_CREDENTIAL_JSON");
         var hasKey = json?.Contains("private_key") ?? false;
         var hasRealNewline = json?.Contains('\n') ?? false; // gerçek newline
@@ -203,8 +219,15 @@ if (app.Environment.IsDevelopment())
     });
 
     // Geçici debug endpoint – access token scope doğrulaması
-    app.MapGet("/api/debug/firebase-tokeninfo", async () =>
+    app.MapGet("/api/debug/firebase-tokeninfo", async (HttpContext ctx) =>
     {
+        if (!app.Environment.IsDevelopment())
+        {
+            if (!ctx.Request.Headers.TryGetValue("X-Debug-Key", out var providedKey)
+                || providedKey != debugEndpointsApiKey)
+                return Results.Unauthorized();
+        }
+
         if (FirebaseAdmin.FirebaseApp.DefaultInstance == null)
             return Results.BadRequest(new { error = "FirebaseApp not initialized" });
 
@@ -233,8 +256,15 @@ if (app.Environment.IsDevelopment())
     });
 
     // Geçici debug endpoint – kayıtlı tüm FCM token'lara test bildirimi gönder
-    app.MapPost("/api/debug/push-test-all", async (AppDbContext db) =>
+    app.MapPost("/api/debug/push-test-all", async (HttpContext ctx, AppDbContext db) =>
     {
+        if (!app.Environment.IsDevelopment())
+        {
+            if (!ctx.Request.Headers.TryGetValue("X-Debug-Key", out var providedKey)
+                || providedKey != debugEndpointsApiKey)
+                return Results.Unauthorized();
+        }
+
         if (FirebaseApp.DefaultInstance == null)
             return Results.BadRequest(new { error = "FirebaseApp not initialized" });
 
