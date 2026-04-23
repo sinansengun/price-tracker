@@ -4,6 +4,10 @@ import UniformTypeIdentifiers
 
 class ShareViewController: UIViewController {
 
+    private let appGroupId = "group.com.cufica.pricetracker"
+    private let sharedUrlKey = "sharedUrl"
+    private var didLoadSharedItem = false
+
     // MARK: - UI
 
     private let cardView: UIView = {
@@ -38,6 +42,8 @@ class ShareViewController: UIViewController {
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        guard !didLoadSharedItem else { return }
+        didLoadSharedItem = true
         handleSharedItems()
     }
 
@@ -88,9 +94,12 @@ class ShareViewController: UIViewController {
                 if attachment.hasItemConformingToTypeIdentifier(urlTypeId) {
                     attachment.loadItem(forTypeIdentifier: urlTypeId) { [weak self] item, _ in
                         if let url = item as? URL {
-                            self?.saveAndOpen(url.absoluteString)
+                            self?.prepareSharedUrl(url.absoluteString)
+                        } else if let nsUrl = item as? NSURL,
+                                  let absolute = nsUrl.absoluteString {
+                            self?.prepareSharedUrl(absolute)
                         } else if let str = item as? String, str.hasPrefix("http") {
-                            self?.saveAndOpen(str)
+                            self?.prepareSharedUrl(str)
                         } else {
                             self?.close()
                         }
@@ -99,8 +108,9 @@ class ShareViewController: UIViewController {
                 }
                 if attachment.hasItemConformingToTypeIdentifier(textTypeId) {
                     attachment.loadItem(forTypeIdentifier: textTypeId) { [weak self] item, _ in
-                        if let text = item as? String, text.hasPrefix("http") {
-                            self?.saveAndOpen(text)
+                        if let text = item as? String,
+                           let extracted = self?.extractFirstUrl(from: text) {
+                            self?.prepareSharedUrl(extracted)
                         } else {
                             self?.close()
                         }
@@ -112,14 +122,41 @@ class ShareViewController: UIViewController {
         close()
     }
 
-    // MARK: - Save + open
+    private func extractFirstUrl(from text: String) -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") {
+            return trimmed
+        }
 
-    private func saveAndOpen(_ urlString: String) {
-        // UserDefaults'a kaydet (ana uygulama açıldığında okur)
-        let defaults = UserDefaults(suiteName: "group.com.cufica.pricetracker")
-        defaults?.set(urlString, forKey: "sharedUrl")
+        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else {
+            return nil
+        }
+
+        let range = NSRange(location: 0, length: (trimmed as NSString).length)
+        let match = detector.firstMatch(in: trimmed, options: [], range: range)
+        guard let url = match?.url else { return nil }
+
+        let value = url.absoluteString
+        if value.hasPrefix("http://") || value.hasPrefix("https://") {
+            return value
+        }
+        return nil
+    }
+
+    private func prepareSharedUrl(_ urlString: String) {
+        let defaults = UserDefaults(suiteName: appGroupId)
+        defaults?.set(urlString, forKey: sharedUrlKey)
         defaults?.synchronize()
 
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.openMainAppForAdd(urlString: urlString)
+        }
+    }
+
+    // MARK: - Save + open
+
+    private func openMainAppForAdd(urlString: String) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
 
@@ -153,7 +190,7 @@ class ShareViewController: UIViewController {
         spinner.stopAnimating()
         spinner.isHidden = true
         let accent = UIColor(red: 0.388, green: 0.400, blue: 0.945, alpha: 1) // #6366F1
-        messageLabel.text = "✓ Kaydedildi"
+        messageLabel.text = "✓ Link kaydedildi. Uygulamayı açıp ekleyebilirsin."
         messageLabel.textColor = accent
 
         if thenClose {

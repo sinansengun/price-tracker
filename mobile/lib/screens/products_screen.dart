@@ -143,7 +143,7 @@ class ProductsScreenState extends State<ProductsScreen> {
                           : RefreshIndicator(
                               onRefresh: products.fetchAll,
                               child: ListView.separated(
-                                padding: const EdgeInsets.all(12),
+                                padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
                                 itemCount: filtered.length,
                                 separatorBuilder: (_, __) =>
                                     const SizedBox(height: 8),
@@ -206,10 +206,9 @@ class ProductsScreenState extends State<ProductsScreen> {
                     ),
                   ],
                 ),
-      floatingActionButton: FloatingActionButton.extended(
+      floatingActionButton: FloatingActionButton(
         onPressed: () => _showAddDialog(context),
-        icon: const Icon(Icons.add),
-        label: const Text('Ürün Ekle'),
+        child: const Icon(Icons.add),
       ),
     );
   }
@@ -222,6 +221,13 @@ class ProductsScreenState extends State<ProductsScreen> {
 class _ProductCard extends StatelessWidget {
   final UserProduct up;
   const _ProductCard({required this.up});
+
+  String _formatAddedDate(DateTime dt) {
+    final d = dt.toLocal();
+    final day = d.day.toString().padLeft(2, '0');
+    final month = d.month.toString().padLeft(2, '0');
+    return '$day.$month.${d.year}';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -237,38 +243,45 @@ class _ProductCard extends StatelessWidget {
         onTap: () => context.push('/products/${up.id}'),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Ürün resmi
-              SizedBox(
-                width: 100,
-                height: 100,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: p.imageUrl != null
-                      ? Image.network(p.imageUrl!,
-                          width: 100, height: 100, fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) =>
-                              const _PlaceholderImage())
-                      : const _PlaceholderImage(),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(p.name.isEmpty ? p.url : p.name,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                    if (p.store != null) ...[
-                      const SizedBox(height: 2),
-                      StoreBadge(store: p.store!, url: p.url),
-                    ],
-                    const SizedBox(height: 4),
-                    Row(
+              Row(
+                children: [
+                  SizedBox(
+                    width: 92,
+                    height: 92,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: p.imageUrl != null
+                          ? Image.network(
+                              p.imageUrl!,
+                              width: 92,
+                              height: 92,
+                                fit: BoxFit.contain,
+                              errorBuilder: (_, __, ___) =>
+                                  const _PlaceholderImage(),
+                            )
+                          : const _PlaceholderImage(),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        Text(
+                          p.name.isEmpty ? p.url : p.name,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              fontWeight: FontWeight.w600, fontSize: 13),
+                        ),
+                        if (p.store != null) ...[
+                          const SizedBox(height: 2),
+                          StoreBadge(store: p.store!, url: p.url),
+                        ],
+                        const SizedBox(height: 4),
                         if (p.currentPrice != null)
                           PriceText(
                             value: p.currentPrice!,
@@ -278,87 +291,95 @@ class _ProductCard extends StatelessWidget {
                         else
                           const Text('—',
                               style: TextStyle(
-                                  fontSize: 15, fontWeight: FontWeight.bold)),
-                      ],
-                    ),
-                    if (p.initialPrice != null &&
-                        p.currentPrice != null &&
-                        p.initialPrice != p.currentPrice)
-                      Text(
-                        '${fmtPrice(p.initialPrice!)} ₺',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: cs.onSurface.withValues(alpha: 0.4),
-                          decoration: TextDecoration.lineThrough,
-                        ),
-                      ),
-                    // Label chips
-                    if (up.labels.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Wrap(
-                        spacing: 4,
-                        runSpacing: 2,
-                        children: up.labels.map((l) {
-                          final c = hexColor(l.color) ?? Colors.indigo;
-                          return Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: c.withValues(alpha: 0.15),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text(l.name.toUpperCase(),
-                                style: TextStyle(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
-                                    letterSpacing: 0.6,
-                                    color: c)),
-                          );
-                        }).toList(),
-                      ),
-                    ],
-                    const SizedBox(height: 2),
-                    // "+ Etiket" butonu
-                    GestureDetector(
-                      onTap: () => _showLabelSheet(context),
-                      child: Text('+ Etiket',
-                          style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.bold)),
+                        if (p.initialPrice != null &&
+                            p.currentPrice != null &&
+                            p.initialPrice != p.currentPrice)
+                          Text(
+                            '${fmtPrice(p.initialPrice!)} ₺',
+                            style: TextStyle(
                               fontSize: 11,
-                              color: cs.onSurface.withValues(alpha: 0.4))),
-                    ),
-                  ],
-                ),
-              ),
-              // Mini grafik + değişim oranı + hedef fiyat
-              if (p.priceHistories.length >= 2 || up.targetPrice != null)
-                Padding(
-                  padding: const EdgeInsets.only(left: 8),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (p.priceHistories.length >= 2)
-                        _MiniChartWithPct(histories: p.priceHistories),
-                      if (up.targetPrice != null) ...[
-                        if (p.priceHistories.length >= 2)
-                          const SizedBox(height: 4),
-                        Text(
-                          'Hedef',
-                          style: TextStyle(
-                              fontSize: 9,
-                              color: cs.onSurface.withValues(alpha: 0.45)),
-                        ),
-                        Text(
-                          '${fmtPrice(up.targetPrice!)} ₺',
-                          style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w600,
-                              color: cs.onSurface.withValues(alpha: 0.7)),
+                              color: cs.onSurface.withValues(alpha: 0.4),
+                              decoration: TextDecoration.lineThrough,
+                            ),
+                          ),
+                        const SizedBox(height: 6),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 2,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            ...up.labels.map((l) {
+                              final c = hexColor(l.color) ?? Colors.indigo;
+                              return Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: c.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(l.name.toUpperCase(),
+                                    style: TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold,
+                                        letterSpacing: 0.6,
+                                        color: c)),
+                              );
+                            }),
+                            GestureDetector(
+                              onTap: () => _showLabelSheet(context),
+                              child: Text('+ Etiket',
+                                  style: TextStyle(
+                                      fontSize: 11,
+                                      color: cs.onSurface.withValues(alpha: 0.4))),
+                            ),
+                          ],
                         ),
                       ],
-                    ],
+                    ),
                   ),
-                ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Eklendi: ${_formatAddedDate(up.addedAt)}',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: cs.onSurface.withValues(alpha: 0.55),
+                          ),
+                        ),
+                        Text(
+                          'Ekleme fiyatı: ${fmtPrice(p.initialPrice ?? p.currentPrice ?? 0)} ₺',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: cs.onSurface.withValues(alpha: 0.7),
+                          ),
+                        ),
+                        Text(
+                          up.targetPrice != null
+                              ? 'Hedef: ${fmtPrice(up.targetPrice!)} ₺'
+                              : 'Hedef: —',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: cs.onSurface.withValues(alpha: 0.65),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (p.priceHistories.isNotEmpty)
+                    _MiniChartWithPct(histories: p.priceHistories),
+                ],
+              ),
             ],
           ),
         ),
@@ -379,45 +400,107 @@ class _MiniChart extends StatelessWidget {
   final List<PricePoint> histories;
   const _MiniChart({required this.histories});
 
+  String _localDayKey(DateTime date) {
+    final d = date.toLocal();
+    final mm = d.month.toString().padLeft(2, '0');
+    final dd = d.day.toString().padLeft(2, '0');
+    return '${d.year}-$mm-$dd';
+  }
+
+  List<double?> _buildLast30DayValues() {
+    final end = DateTime.now();
+    final endDay = DateTime(end.year, end.month, end.day);
+    final startMs =
+        endDay.millisecondsSinceEpoch - 29 * Duration.millisecondsPerDay;
+    final endExclusive =
+        endDay.millisecondsSinceEpoch + Duration.millisecondsPerDay;
+
+    final byDay = <String, PricePoint>{};
+    for (final h in histories) {
+      final local = h.checkedAt.toLocal();
+      final t = local.millisecondsSinceEpoch;
+      if (t < startMs || t >= endExclusive) continue;
+      final key = _localDayKey(local);
+      final existing = byDay[key];
+      if (existing == null || local.isAfter(existing.checkedAt)) {
+        byDay[key] = h;
+      }
+    }
+
+    return List<double?>.generate(30, (i) {
+      final day = DateTime.fromMillisecondsSinceEpoch(
+          startMs + i * Duration.millisecondsPerDay);
+      final key = _localDayKey(day);
+      return byDay[key]?.price;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    final sorted = [...histories]
-      ..sort((a, b) => a.checkedAt.compareTo(b.checkedAt));
-    final prices = sorted.map((h) => h.price).toList();
+    final values = _buildLast30DayValues();
+    final prices = values.whereType<double>().toList();
+    if (prices.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
     final minP = prices.reduce((a, b) => a < b ? a : b);
     final maxP = prices.reduce((a, b) => a > b ? a : b);
     final flat = minP == maxP;
-    final isDown = prices.last < prices.first;
-    final color = flat
-        ? Colors.grey
-        : isDown
-            ? Colors.green
-            : Colors.red;
+    final firstPrice = prices.first;
+    final maxDeviation = prices
+      .map((p) => (p - firstPrice).abs())
+      .reduce((a, b) => a > b ? a : b);
+    final basePadding = (firstPrice * 0.03).abs().clamp(1.0, double.infinity);
+    final halfRange = (maxDeviation * 1.15) > basePadding
+      ? (maxDeviation * 1.15)
+      : basePadding;
+    final yMin = firstPrice - halfRange;
+    final yMax = firstPrice + halfRange;
+    final color = flat ? const Color(0xFF94A3B8) : const Color(0xFF2563EB);
 
-    final spots = sorted
-        .asMap()
-        .entries
-        .map((e) => FlSpot(e.key.toDouble(), e.value.price))
-        .toList();
+    final spots = prices.length == 1
+        ? () {
+            final idx = values.indexWhere((v) => v != null);
+            final left = (idx - 0.35).clamp(0, values.length - 1).toDouble();
+            final right = (idx + 0.35).clamp(0, values.length - 1).toDouble();
+            return [
+              FlSpot(left, firstPrice),
+              FlSpot(right, firstPrice),
+            ];
+          }()
+        : List<FlSpot>.generate(values.length, (i) {
+            final v = values[i];
+            if (v == null) return FlSpot.nullSpot;
+            return FlSpot(i.toDouble(), v);
+          });
 
-    return SizedBox(
-      width: 72,
-      height: 44,
+    return Container(
+      width: 112,
+      height: 46,
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.7),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: Colors.grey.withValues(alpha: 0.45),
+          width: 1,
+          strokeAlign: BorderSide.strokeAlignInside,
+        ),
+      ),
       child: LineChart(
         LineChartData(
-          minY: flat ? minP - 1 : minP,
-          maxY: flat ? maxP + 1 : maxP,
+          minX: 0,
+          maxX: (values.length - 1).toDouble(),
+          minY: yMin,
+          maxY: yMax,
           lineBarsData: [
             LineChartBarData(
               spots: spots,
-              isCurved: true,
+              isCurved: false,
               color: color,
-              barWidth: 2,
+              barWidth: 1.8,
               dotData: const FlDotData(show: false),
-              belowBarData: BarAreaData(
-                show: true,
-                color: color.withValues(alpha: 0.1),
-              ),
+              belowBarData: BarAreaData(show: false),
             ),
           ],
           titlesData: const FlTitlesData(show: false),
@@ -434,48 +517,74 @@ class _MiniChartWithPct extends StatelessWidget {
   final List<PricePoint> histories;
   const _MiniChartWithPct({required this.histories});
 
+  String _localDayKey(DateTime date) {
+    final d = date.toLocal();
+    final mm = d.month.toString().padLeft(2, '0');
+    final dd = d.day.toString().padLeft(2, '0');
+    return '${d.year}-$mm-$dd';
+  }
+
+  List<double?> _buildLast30DayValues() {
+    final end = DateTime.now();
+    final endDay = DateTime(end.year, end.month, end.day);
+    final startMs =
+        endDay.millisecondsSinceEpoch - 29 * Duration.millisecondsPerDay;
+    final endExclusive =
+        endDay.millisecondsSinceEpoch + Duration.millisecondsPerDay;
+
+    final byDay = <String, PricePoint>{};
+    for (final h in histories) {
+      final local = h.checkedAt.toLocal();
+      final t = local.millisecondsSinceEpoch;
+      if (t < startMs || t >= endExclusive) continue;
+      final key = _localDayKey(local);
+      final existing = byDay[key];
+      if (existing == null || local.isAfter(existing.checkedAt)) {
+        byDay[key] = h;
+      }
+    }
+
+    return List<double?>.generate(30, (i) {
+      final day = DateTime.fromMillisecondsSinceEpoch(
+          startMs + i * Duration.millisecondsPerDay);
+      final key = _localDayKey(day);
+      return byDay[key]?.price;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    final sorted = [...histories]
-      ..sort((a, b) => a.checkedAt.compareTo(b.checkedAt));
-    final first = sorted.first;
-    final last = sorted.last;
-    final prices = sorted.map((h) => h.price).toList();
+    final values = _buildLast30DayValues();
+    final prices = values.whereType<double>().toList();
+    if (prices.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    final firstPrice = prices.first;
+    final lastPrice = prices.last;
     final flat = prices.reduce((a, b) => a < b ? a : b) ==
         prices.reduce((a, b) => a > b ? a : b);
-    final isDown = last.price < first.price;
+    final isUp = lastPrice > firstPrice;
     final color = flat
-        ? Colors.grey
-        : isDown
-            ? Colors.green
-            : Colors.red;
+      ? const Color(0xFF94A3B8)
+      : (isUp ? Colors.red : Colors.green);
 
     // Yüzde değişim
     double? pct;
-    if (first.price > 0) {
-      pct = ((last.price - first.price) / first.price) * 100;
+    if (firstPrice > 0) {
+      pct = ((lastPrice - firstPrice) / firstPrice) * 100;
     }
 
-    // Dönem etiketi
-    String periodLabel = '';
-    final days = last.checkedAt.difference(first.checkedAt).inDays;
-    if (days < 2) {
-      periodLabel = 'Son 1 gün';
-    } else if (days < 31) {
-      periodLabel = 'Son $days gün';
-    } else if (days < 365) {
-      periodLabel = 'Son ${(days / 30).round()} ay';
-    } else {
-      periodLabel = 'Son ${(days / 365).round()} yıl';
-    }
+    const periodLabel = 'Son 1 ay';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.center,
       mainAxisSize: MainAxisSize.min,
       children: [
         if (pct != null)
-          Column(
+          Row(
             crossAxisAlignment: CrossAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
             children: [
               Text(
                 periodLabel,
@@ -484,8 +593,9 @@ class _MiniChartWithPct extends StatelessWidget {
                     fontWeight: FontWeight.w500,
                     color: color),
               ),
+              const SizedBox(width: 4),
               Text(
-                '${isDown ? '▼' : flat ? '—' : '▲'} %${pct.abs().toStringAsFixed(1)}',
+                '${flat ? '—' : isUp ? '▲' : '▼'} %${pct.abs().toStringAsFixed(1)}',
                 style: TextStyle(
                     fontSize: 10,
                     fontWeight: FontWeight.w700,
@@ -506,8 +616,8 @@ class _PlaceholderImage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 100,
-      height: 100,
+      width: double.infinity,
+      height: double.infinity,
       color: Theme.of(context).colorScheme.surfaceContainerHighest,
       child: const Icon(Icons.image_not_supported_outlined),
     );
@@ -526,6 +636,7 @@ class _AddProductSheetState extends State<_AddProductSheet> {
   final _formKey = GlobalKey<FormState>();
   final _urlCtrl = TextEditingController();
   final _targetCtrl = TextEditingController();
+  int? _selectedLabelId;
   bool _loading = false;
   String? _error;
 
@@ -581,6 +692,7 @@ class _AddProductSheetState extends State<_AddProductSheet> {
     final err = await productsProvider.addProduct(
       normalizedUrl,
       targetPrice: targetPrice,
+      initialLabelId: _selectedLabelId,
     );
 
     if (!mounted) return;
@@ -603,6 +715,12 @@ class _AddProductSheetState extends State<_AddProductSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final labels = context.watch<ProductsProvider>().labels;
+
+    if (_selectedLabelId != null && !labels.any((l) => l.id == _selectedLabelId)) {
+      _selectedLabelId = null;
+    }
+
     return Padding(
       padding: EdgeInsets.only(
         left: 20,
@@ -662,6 +780,30 @@ class _AddProductSheetState extends State<_AddProductSheet> {
                 prefixText: '₺ ',
                 border: OutlineInputBorder(),
               ),
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<int?>(
+              value: _selectedLabelId,
+              decoration: const InputDecoration(
+                labelText: 'Label (opsiyonel)',
+                prefixIcon: Icon(Icons.label_outline),
+                border: OutlineInputBorder(),
+              ),
+              items: [
+                const DropdownMenuItem<int?>(
+                  value: null,
+                  child: Text('Etiket Seç'),
+                ),
+                ...labels.map((l) => DropdownMenuItem<int?>(
+                        value: l.id,
+                        child: Text(l.name),
+                      )),
+              ],
+              onChanged: (value) {
+                setState(() {
+                  _selectedLabelId = value;
+                });
+              },
             ),
             if (_error != null) ...[
               const SizedBox(height: 8),

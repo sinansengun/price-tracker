@@ -64,7 +64,7 @@ class ProductsProvider extends ChangeNotifier {
   }
 
   Future<String?> addProduct(String url,
-      {String? name, double? targetPrice}) async {
+      {String? name, double? targetPrice, int? initialLabelId}) async {
     try {
       final res = await http.post(
         ApiClient.uri('/products'),
@@ -77,6 +77,16 @@ class ProductsProvider extends ChangeNotifier {
       );
 
       if (res.statusCode == 201) {
+        final body = jsonDecode(res.body) as Map<String, dynamic>;
+        final userProductId = body['id'] as int?;
+
+        if (initialLabelId != null && userProductId != null) {
+          await http.post(
+            ApiClient.uri('/products/$userProductId/labels/$initialLabelId'),
+            headers: ApiClient.headers,
+          );
+        }
+
         await fetchAll();
         return null;
       } else {
