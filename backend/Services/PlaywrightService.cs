@@ -70,10 +70,15 @@ public sealed class PlaywrightService : IAsyncDisposable
                     Timeout   = 30_000
                 });
 
-                if (response == null || !response.Ok)
+                if (response == null)
                 {
-                    _logger.LogWarning("Playwright: HTTP {Status} → {Url}", response?.Status, url);
+                    _logger.LogWarning("Playwright: yanit alinmadi → {Url}", url);
                     return null;
+                }
+
+                if (!response.Ok)
+                {
+                    _logger.LogWarning("Playwright: HTTP {Status} ama HTML okunmaya devam edilecek → {Url}", response.Status, url);
                 }
 
                 var html = await page.ContentAsync();

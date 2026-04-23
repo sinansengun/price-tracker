@@ -31,23 +31,41 @@ public class HepsiburadaScraper(
 
         Logger.LogInformation("Hepsiburada: Fetching HTML from {Url}", url);
         var html = await FetchHtmlAsync(url);
-        if (html == null) return null;
-
-        if (html.Length < 10_000)
+        if (html == null)
         {
-            Logger.LogWarning("Sayfa çok kısa ({Len} chars), bot koruması olabilir.", html.Length);
-            return null;
+            Logger.LogWarning("HTTP fetch null döndü. Playwright fallback deneniyor.");
+            var rendered = await playwright.FetchHtmlAsync(
+                url,
+                Microsoft.Playwright.WaitUntilState.DOMContentLoaded
+            );
+
+            if (string.IsNullOrWhiteSpace(rendered) || IsLikelyBlockedHtml(rendered))
+            {
+                Logger.LogWarning("Playwright fallback başarısız veya korumalı HTML döndü.");
+                return null;
+            }
+
+            Logger.LogInformation("Playwright fallback başarılı ({Len} chars).", rendered.Length);
+            html = rendered;
         }
 
-        if (html.Length < 50_000)
+        if (IsLikelyBlockedHtml(html))
         {
-            var titleMatch = Regex.Match(html, @"<title[^>]*>([^<]+)</title>", RegexOptions.IgnoreCase);
-            var title = titleMatch.Success ? titleMatch.Groups[1].Value : "";
-            if (title.Contains("güvenlik",  StringComparison.OrdinalIgnoreCase) ||
-                title.Contains("security",  StringComparison.OrdinalIgnoreCase) ||
-                title.Contains("captcha",   StringComparison.OrdinalIgnoreCase))
+            Logger.LogWarning("HTTP HTML kısa/korumalı görünüyor ({Len} chars). Playwright fallback deneniyor.", html.Length);
+
+            var rendered = await playwright.FetchHtmlAsync(
+                url,
+                Microsoft.Playwright.WaitUntilState.DOMContentLoaded
+            );
+
+            if (!string.IsNullOrWhiteSpace(rendered) && !IsLikelyBlockedHtml(rendered))
             {
-                Logger.LogWarning("Bot koruması sayfası tespit edildi. Title: {Title}", title);
+                Logger.LogInformation("Playwright fallback başarılı ({Len} chars).", rendered.Length);
+                html = rendered;
+            }
+            else
+            {
+                Logger.LogWarning("Playwright fallback da korumalı/eksik HTML döndürdü.");
                 return null;
             }
         }
@@ -89,6 +107,33 @@ public class HepsiburadaScraper(
         }
 
         return result;
+    }
+
+    private bool IsLikelyBlockedHtml(string html)
+    {
+        if (string.IsNullOrWhiteSpace(html)) return true;
+        if (html.Length < 10_000) return true;
+
+        var titleMatch = Regex.Match(html, @"<title[^>]*>([^<]+)</title>", RegexOptions.IgnoreCase);
+        var title = titleMatch.Success ? titleMatch.Groups[1].Value : string.Empty;
+
+        if (title.Contains("güvenlik", StringComparison.OrdinalIgnoreCase) ||
+            title.Contains("security", StringComparison.OrdinalIgnoreCase) ||
+            title.Contains("captcha", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        // Body-level anti-bot sinyallerini sadece kısa/şüpheli sayfalarda dikkate al.
+        // Büyük HTML'lerde "security" kelimesi normal script/metin içinde geçebiliyor.
+        if (html.Length < 50_000)
+        {
+            if (html.Contains("captcha", StringComparison.OrdinalIgnoreCase) ||
+                html.Contains("cloudflare", StringComparison.OrdinalIgnoreCase) ||
+                html.Contains("access denied", StringComparison.OrdinalIgnoreCase) ||
+                html.Contains("bot verification", StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
     }
 
     /// <summary>
