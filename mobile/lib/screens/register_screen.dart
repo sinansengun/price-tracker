@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
+import '../services/analytics_service.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -28,8 +31,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     final auth = context.read<AuthProvider>();
+    final router = GoRouter.of(context);
+
+    unawaited(
+      AnalyticsService.instance.logSignupAttempt(
+        hasEmailLikeInput: _emailCtrl.text.contains('@'),
+      ),
+    );
     final ok = await auth.register(_emailCtrl.text.trim(), _passCtrl.text);
-    if (ok && mounted) context.go('/products');
+    if (ok && mounted) router.go('/products');
   }
 
   @override

@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../models/product.dart';
 import '../providers/auth_provider.dart';
 import '../providers/products_provider.dart';
+import '../services/analytics_service.dart';
 import 'label_sheet.dart';
 
 class ProductsScreen extends StatefulWidget {
@@ -17,9 +18,14 @@ class ProductsScreen extends StatefulWidget {
 
 class ProductsScreenState extends State<ProductsScreen> {
   int? _filterLabelId;
+  bool _viewTracked = false;
 
   void openAddSheet({String? initialUrl}) {
     if (!mounted) return;
+    AnalyticsService.instance.logAddProductOpened(
+      source: initialUrl == null ? 'manual_fab' : 'share_intent',
+      url: initialUrl,
+    );
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -30,8 +36,15 @@ class ProductsScreenState extends State<ProductsScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback(
-        (_) => context.read<ProductsProvider>().fetchAll());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final provider = context.read<ProductsProvider>();
+      provider.fetchAll();
+      if (!_viewTracked) {
+        _viewTracked = true;
+        AnalyticsService.instance
+            .logProductsScreenViewed(productCount: provider.products.length);
+      }
+    });
   }
 
   @override
@@ -547,6 +560,9 @@ class _AddProductSheetState extends State<_AddProductSheet> {
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
+    final productsProvider = context.read<ProductsProvider>();
+    final navigator = Navigator.of(context);
+
     setState(() {
       _loading = true;
       _error = null;
@@ -555,20 +571,33 @@ class _AddProductSheetState extends State<_AddProductSheet> {
     final targetPrice = _targetCtrl.text.isNotEmpty
         ? double.tryParse(_targetCtrl.text.replaceAll(',', '.'))
         : null;
+    final normalizedUrl = _urlCtrl.text.trim();
 
-    final err = await context
-        .read<ProductsProvider>()
-        .addProduct(_urlCtrl.text.trim(), targetPrice: targetPrice);
+    await AnalyticsService.instance.logAddProductSubmitted(
+      url: normalizedUrl,
+      hasTargetPrice: targetPrice != null,
+    );
 
-    if (mounted) {
-      if (err == null) {
-        Navigator.pop(context);
-      } else {
-        setState(() {
-          _loading = false;
-          _error = err;
-        });
-      }
+    final err = await productsProvider.addProduct(
+      normalizedUrl,
+      targetPrice: targetPrice,
+    );
+
+    if (!mounted) return;
+
+    if (err == null) {
+      await AnalyticsService.instance
+          .logAddProductSuccess(hasTargetPrice: targetPrice != null);
+      if (!mounted) return;
+      navigator.pop();
+    } else {
+      await AnalyticsService.instance
+          .logAddProductFailed(reason: _mapAddProductFailure(err));
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = err;
+      });
     }
   }
 
@@ -658,5 +687,15 @@ class _AddProductSheetState extends State<_AddProductSheet> {
         ),
       ),
     );
+  }
+
+  String _mapAddProductFailure(String err) {
+    final normalized = err.toLowerCase();
+    if (normalized.contains('url')) return 'invalid_url';
+    if (normalized.contains('bağlan') || normalized.contains('baglan')) {
+      return 'network';
+    }
+    if (normalized.contains('zaten')) return 'duplicate_or_exists';
+    return 'request_rejected';
   }
 }

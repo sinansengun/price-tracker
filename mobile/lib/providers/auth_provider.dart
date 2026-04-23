@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import '../api/api_client.dart';
+import '../services/analytics_service.dart';
 
 class AuthProvider extends ChangeNotifier {
   static const _storage = FlutterSecureStorage();
@@ -45,13 +47,18 @@ class AuthProvider extends ChangeNotifier {
       if (res.statusCode == 200) {
         final token = jsonDecode(res.body)['token'] as String;
         await _saveToken(token);
+        unawaited(AnalyticsService.instance.logLoginSuccess());
         return true;
       } else {
         _error = _extractError(res.body, 'E-posta veya şifre hatalı.');
+        unawaited(AnalyticsService.instance.logLoginFailed(
+          reason: _classifyAuthFailure(statusCode: res.statusCode),
+        ));
         return false;
       }
     } catch (_) {
       _error = 'Sunucuya bağlanılamadı.';
+      unawaited(AnalyticsService.instance.logLoginFailed(reason: 'network'));
       return false;
     } finally {
       _loading = false;
@@ -74,13 +81,18 @@ class AuthProvider extends ChangeNotifier {
       if (res.statusCode == 200) {
         final token = jsonDecode(res.body)['token'] as String;
         await _saveToken(token);
+        unawaited(AnalyticsService.instance.logSignupSuccess());
         return true;
       } else {
         _error = _extractError(res.body, 'Kayıt başarısız.');
+        unawaited(AnalyticsService.instance.logSignupFailed(
+          reason: _classifyAuthFailure(statusCode: res.statusCode),
+        ));
         return false;
       }
     } catch (_) {
       _error = 'Sunucuya bağlanılamadı.';
+      unawaited(AnalyticsService.instance.logSignupFailed(reason: 'network'));
       return false;
     } finally {
       _loading = false;
@@ -113,5 +125,12 @@ class AuthProvider extends ChangeNotifier {
       if (errs is List && errs.isNotEmpty) return errs.join('\n');
     } catch (_) {}
     return fallback;
+  }
+
+  String _classifyAuthFailure({required int statusCode}) {
+    if (statusCode == 400 || statusCode == 401) return 'invalid_credentials';
+    if (statusCode == 409) return 'already_exists';
+    if (statusCode >= 500) return 'server_error';
+    return 'request_rejected';
   }
 }

@@ -13,6 +13,7 @@ import 'screens/login_screen.dart';
 import 'screens/product_detail_screen.dart';
 import 'screens/products_screen.dart';
 import 'screens/register_screen.dart';
+import 'services/analytics_service.dart';
 
 // Arka planda gelen mesajları işle (top-level fonksiyon olmalı)
 @pragma('vm:entry-point')
@@ -38,6 +39,7 @@ final FlutterLocalNotificationsPlugin _localNotifications =
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
+  await AnalyticsService.instance.initialize();
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
   const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
@@ -82,6 +84,19 @@ class _PriceTrackerAppState extends State<PriceTrackerApp>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    FirebaseMessaging.onMessageOpenedApp.listen((_) {
+      AnalyticsService.instance
+          .logPushOpenedFromBackground(source: 'resume_tap');
+    });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final initialMessage = await FirebaseMessaging.instance.getInitialMessage();
+      if (initialMessage != null) {
+        await AnalyticsService.instance
+            .logPushOpenedFromBackground(source: 'cold_start_tap');
+      }
+    });
+
     // FCM token kaydını login/restore sonrasına ertele
     final auth = context.read<AuthProvider>();
     auth.onAuthenticated = _setupFcm;
@@ -141,7 +156,11 @@ class _PriceTrackerAppState extends State<PriceTrackerApp>
 
   Future<void> _setupFcm() async {
     final messaging = FirebaseMessaging.instance;
-    await messaging.requestPermission(alert: true, badge: true, sound: true);
+    final permissionSettings =
+        await messaging.requestPermission(alert: true, badge: true, sound: true);
+    await AnalyticsService.instance.logPushPermissionResult(
+      status: permissionSettings.authorizationStatus.name,
+    );
     await messaging.setForegroundNotificationPresentationOptions(
       alert: true,
       badge: true,
@@ -178,6 +197,11 @@ class _PriceTrackerAppState extends State<PriceTrackerApp>
 
     // Uygulama açıkken gelen bildirimleri yönet
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+      AnalyticsService.instance.logPushForegroundReceived(
+        hasNotification: message.notification != null,
+        hasData: message.data.isNotEmpty,
+      );
+
       final n = message.notification;
       final android = message.notification?.android;
       if (n == null) return;

@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../models/product.dart';
 import '../providers/products_provider.dart';
+import '../services/analytics_service.dart';
 import 'label_sheet.dart';
 
 class ProductDetailScreen extends StatefulWidget {
@@ -18,6 +19,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   UserProduct? _up;
   bool _loading = true;
   bool _checkLoading = false;
+  bool _viewTracked = false;
 
   @override
   void initState() {
@@ -30,6 +32,16 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     _up = await context
         .read<ProductsProvider>()
         .fetchById(widget.userProductId);
+
+    if (_up != null && !_viewTracked) {
+      _viewTracked = true;
+      await AnalyticsService.instance.logProductDetailViewed(
+        hasTargetPrice: _up!.targetPrice != null,
+        labelCount: _up!.labels.length,
+        historyPointCount: _up!.product.priceHistories.length,
+      );
+    }
+
     setState(() => _loading = false);
   }
 
