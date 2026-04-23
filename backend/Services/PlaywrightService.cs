@@ -1,4 +1,5 @@
 using Microsoft.Playwright;
+using System.Text.RegularExpressions;
 
 namespace PriceTracker.Services;
 
@@ -200,6 +201,151 @@ public sealed class PlaywrightService : IAsyncDisposable
             _logger.LogWarning(ex, "Playwright warmup: başarısız → {Url}", targetUrl);
             return null;
         }
+    }
+
+    /// <summary>
+    /// Warmup + ürün sayfası akışında page üzerindeki JSON/API response'larını toplayıp
+    /// verilen fiyat alanlarından en düşük değeri çıkarır.
+    /// </summary>
+    public async Task<decimal?> ExtractLowestPriceFromNetworkWithWarmupAsync(
+        string warmupUrl,
+        string targetUrl,
+        IEnumerable<string> priceFields,
+        int settleMs = 3000)
+    {
+        try
+        {
+            var browser = await EnsureBrowserAsync();
+            await using var context = await CreateStealthContextAsync(browser);
+            var page = await context.NewPageAsync();
+
+            var responseBodies = new List<string>();
+            var readTasks = new List<Task>();
+            var sync = new object();
+
+            bool IsCandidate(IResponse r)
+            {
+                var u = r.Url ?? string.Empty;
+                if (!u.Contains("hepsiburada.com", StringComparison.OrdinalIgnoreCase)) return false;
+                if (!u.Contains("/api/", StringComparison.OrdinalIgnoreCase)
+                    && !u.Contains("graphql", StringComparison.OrdinalIgnoreCase)
+                    && !u.Contains("listing", StringComparison.OrdinalIgnoreCase)
+                    && !u.Contains("price", StringComparison.OrdinalIgnoreCase)
+                    && !u.Contains("merchant", StringComparison.OrdinalIgnoreCase))
+                    return false;
+
+                var ct = r.Headers.TryGetValue("content-type", out var v) ? v : string.Empty;
+                return ct.Contains("json", StringComparison.OrdinalIgnoreCase) || ct.Contains("javascript", StringComparison.OrdinalIgnoreCase);
+            }
+
+            page.Response += (_, r) =>
+            {
+                if (!IsCandidate(r)) return;
+                lock (sync)
+                {
+                    readTasks.Add(Task.Run(async () =>
+                    {
+                        try
+                        {
+                            var body = await r.TextAsync();
+                            if (!string.IsNullOrWhiteSpace(body))
+                            {
+                                lock (sync)
+                                {
+                                    responseBodies.Add(body);
+                                }
+                            }
+                        }
+                        catch
+                        {
+                            // ignore single response parsing failures
+                        }
+                    }));
+                }
+            };
+
+            try
+            {
+                _logger.LogInformation("Playwright network warmup: {Warmup}", warmupUrl);
+                await page.GotoAsync(warmupUrl, new PageGotoOptions
+                {
+                    WaitUntil = WaitUntilState.DOMContentLoaded,
+                    Timeout = 15_000
+                });
+
+                await Task.Delay(Random.Shared.Next(900, 1600));
+
+                await page.GotoAsync(targetUrl, new PageGotoOptions
+                {
+                    WaitUntil = WaitUntilState.DOMContentLoaded,
+                    Timeout = 30_000
+                });
+
+                await Task.Delay(settleMs);
+
+                Task[] pending;
+                lock (sync)
+                {
+                    pending = readTasks.ToArray();
+                }
+                await Task.WhenAll(pending);
+
+                decimal? lowest = null;
+                foreach (var body in responseBodies)
+                {
+                    foreach (var field in priceFields)
+                    {
+                        foreach (Match m in Regex.Matches(body, $@"""{field}""\s*:\s*([\d.,]+)", RegexOptions.IgnoreCase))
+                        {
+                            var val = ParseNetworkPrice(m.Groups[1].Value);
+                            if (val is > 10 && (lowest == null || val < lowest))
+                                lowest = val;
+                        }
+                    }
+                }
+
+                _logger.LogInformation("Playwright network fiyat taraması: {Count} response, en düşük={Lowest}", responseBodies.Count, lowest);
+                return lowest;
+            }
+            finally
+            {
+                await page.CloseAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Playwright network fiyat taraması başarısız → {Url}", targetUrl);
+            return null;
+        }
+    }
+
+    private static decimal? ParseNetworkPrice(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return null;
+        var s = raw.Trim().Replace("TL", "", StringComparison.OrdinalIgnoreCase);
+
+        var hasComma = s.Contains(',');
+        var hasDot = s.Contains('.');
+
+        if (hasComma && hasDot)
+        {
+            var lastComma = s.LastIndexOf(',');
+            var lastDot = s.LastIndexOf('.');
+            if (lastComma > lastDot)
+                s = s.Replace(".", "").Replace(',', '.');
+            else
+                s = s.Replace(",", "");
+        }
+        else if (hasComma)
+        {
+            s = s.Replace('.', ' ').Replace(" ", "").Replace(',', '.');
+        }
+
+        s = Regex.Replace(s, "[^0-9.]", "");
+        return decimal.TryParse(s, System.Globalization.NumberStyles.Any,
+            System.Globalization.CultureInfo.InvariantCulture, out var d)
+            ? d
+            : null;
     }
 
     /// <summary>

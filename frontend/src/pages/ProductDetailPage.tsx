@@ -24,6 +24,21 @@ function fmt(price: number) {
   return price.toLocaleString('tr-TR', { minimumFractionDigits: 2 }) + ' ₺'
 }
 
+function PriceText({ price, className = '' }: { price: number; className?: string }) {
+  const formatted = price.toLocaleString('tr-TR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })
+  const [mainPart, decimalPart = '00'] = formatted.split(',')
+
+  return (
+    <span className={className}>
+      <span>{mainPart}</span>
+      <span className="ml-0.5 align-bottom text-[0.62em]">,{decimalPart} ₺</span>
+    </span>
+  )
+}
+
 function fmtDate(iso: string) {
   return new Date(iso).toLocaleString('tr-TR', {
     day: '2-digit', month: 'short', year: 'numeric',
@@ -126,22 +141,27 @@ export default function ProductDetailPage() {
   const [checking, setChecking] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [error, setError]       = useState('')
+  const [showActionMenu, setShowActionMenu] = useState(false)
   const [showLabelPanel, setShowLabelPanel] = useState(false)
   const [newLabelName, setNewLabelName]     = useState('')
   const [newLabelColor, setNewLabelColor]   = useState('#6366f1')
   const [labelSaving, setLabelSaving]       = useState(false)
+  const actionMenuRef = useRef<HTMLDivElement>(null)
   const labelDropdownRef = useRef<HTMLDivElement>(null)
 
-  // Close dropdown on outside click
+  // Close menus on outside click
   useEffect(() => {
-    if (!showLabelPanel) return
+    if (!showLabelPanel && !showActionMenu) return
     const handler = (e: MouseEvent) => {
+      if (actionMenuRef.current && !actionMenuRef.current.contains(e.target as Node)) {
+        setShowActionMenu(false)
+      }
       if (labelDropdownRef.current && !labelDropdownRef.current.contains(e.target as Node))
         setShowLabelPanel(false)
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
-  }, [showLabelPanel])
+  }, [showLabelPanel, showActionMenu])
 
   const load = async () => {
     try {
@@ -166,6 +186,13 @@ export default function ProductDetailPage() {
     } catch {
       setChecking(false)
     }
+  }
+
+  const handleDelete = async () => {
+    if (!confirm('Bu ürünü silmek istediğinize emin misiniz?')) return
+    setDeleting(true)
+    await deleteProduct(Number(id))
+    navigate('/')
   }
 
   const handleToggleLabel = async (label: Label) => {
@@ -259,7 +286,35 @@ export default function ProductDetailPage() {
             )}
           </div>
 
-          <div className="flex-1 min-w-0 space-y-3 sm:min-h-48 flex flex-col">
+          <div className="flex-1 min-w-0 space-y-3 sm:min-h-48 flex flex-col relative pr-10">
+            <div className="absolute right-0 top-0" ref={actionMenuRef}>
+              <button
+                onClick={() => setShowActionMenu(v => !v)}
+                className="h-8 w-8 rounded-lg border border-gray-200 text-gray-500 hover:text-gray-800 hover:bg-gray-100 transition-colors"
+                title="Aksiyonlar"
+              >
+                ⋯
+              </button>
+              {showActionMenu && (
+                <div className="absolute right-0 mt-1.5 z-50 w-48 bg-white border border-gray-200 rounded-lg shadow-lg py-1">
+                  <button
+                    onClick={() => { setShowActionMenu(false); handleCheck() }}
+                    disabled={checking}
+                    className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    {checking ? 'Kontrol ediliyor...' : '🔄 Fiyatı Kontrol Et'}
+                  </button>
+                  <button
+                    onClick={() => { setShowActionMenu(false); handleDelete() }}
+                    disabled={deleting}
+                    className="w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 disabled:opacity-50"
+                  >
+                    {deleting ? 'Siliniyor...' : '🗑 Ürünü Sil'}
+                  </button>
+                </div>
+              )}
+            </div>
+
             <div className="flex items-start gap-2 flex-wrap">
               {p.store && <StoreBadge store={p.store} url={p.url} />}
               <a
@@ -277,7 +332,7 @@ export default function ProductDetailPage() {
             {/* Prices */}
             <div className="flex items-center gap-3 flex-wrap">
               {p.currentPrice != null && (
-                <span className="text-2xl font-bold text-gray-900">{fmt(p.currentPrice)}</span>
+                <span className="text-2xl font-bold text-gray-900"><PriceText price={p.currentPrice} /></span>
               )}
               {priceChange !== null && Math.abs(priceChange) >= 0.01 && (
                 <span
@@ -290,43 +345,17 @@ export default function ProductDetailPage() {
               )}
             </div>
 
-            <div className="flex gap-6 text-xs text-gray-500 flex-wrap">
-              {p.initialPrice != null && (
-                <span>Başlangıç: <strong className="text-gray-700">{fmt(p.initialPrice)}</strong></span>
-              )}
-              {p.targetPrice != null && (
-                <span>🎯 Hedef: <strong className="text-gray-700">{fmt(p.targetPrice)}</strong></span>
-              )}
-              {p.lastCheckedAt && (
-                <span>Son kontrol: <strong className="text-gray-700">{fmtDate(p.lastCheckedAt)}</strong></span>
-              )}
+            <div className="flex flex-col items-start gap-1 text-xs text-gray-500">
+              <span>
+                Fiyat: <strong className="text-gray-700">{p.currentPrice != null ? <PriceText price={p.currentPrice} /> : '-'}</strong>
+              </span>
+              <span>
+                Ekleme tarihi: <strong className="text-gray-700">{fmtDate(p.createdAt)}</strong>
+              </span>
+              <span>
+                Hedef: <strong className="text-gray-700">{p.targetPrice != null ? <PriceText price={p.targetPrice} /> : '-'}</strong>
+              </span>
             </div>
-
-            <button
-              onClick={handleCheck}
-              disabled={checking}
-              className="self-start inline-flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2 rounded-xl transition-colors disabled:opacity-60"
-            >
-              {checking ? (
-                <>
-                  <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Kontrol ediliyor...
-                </>
-              ) : '🔄 Fiyatı Kontrol Et'}
-            </button>
-
-            <button
-              onClick={async () => {
-                if (!confirm('Bu ürünü silmek istediğinize emin misiniz?')) return
-                setDeleting(true)
-                await deleteProduct(Number(id))
-                navigate('/')
-              }}
-              disabled={deleting}
-              className="self-start inline-flex items-center gap-2 bg-red-50 hover:bg-red-100 text-red-600 text-sm font-medium px-4 py-2 rounded-xl transition-colors disabled:opacity-60"
-            >
-              {deleting ? 'Siliniyor...' : '🗑 Ürünü Sil'}
-            </button>
 
             {/* Labels */}
             <div className="pt-1">

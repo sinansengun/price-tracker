@@ -112,6 +112,21 @@ function fmt(price: number) {
   return price.toLocaleString('tr-TR', { minimumFractionDigits: 2 }) + ' ₺'
 }
 
+function PriceText({ price, className = '' }: { price: number; className?: string }) {
+  const formatted = price.toLocaleString('tr-TR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })
+  const [mainPart, decimalPart = '00'] = formatted.split(',')
+
+  return (
+    <span className={className}>
+      <span>{mainPart}</span>
+      <span className="ml-0.5 align-bottom text-[0.62em]">,{decimalPart} ₺</span>
+    </span>
+  )
+}
+
 function fmtDate(iso: string, includeTime = false) {
   return new Date(iso).toLocaleString('tr-TR', {
     day: 'numeric', month: 'short', year: 'numeric',
@@ -383,10 +398,10 @@ function ProductRow({
     >
       <div className="flex">
         <div
-          className="shrink-0 w-24 sm:w-40 h-24 sm:h-32 bg-gray-50 flex items-center justify-center p-2 border-r border-gray-100 overflow-hidden"
+          className="shrink-0 w-24 sm:w-40 h-24 sm:h-32 bg-white flex items-center justify-center p-2 border-r border-gray-100 overflow-hidden"
         >
           {imgSrc
-            ? <img src={imgSrc} alt={product.name} className="max-w-full max-h-full object-contain" />
+            ? <img src={imgSrc} alt={product.name} className="block max-w-full max-h-full object-contain" />
             : <span className="text-4xl">🛍️</span>}
         </div>
 
@@ -396,13 +411,18 @@ function ProductRow({
           <p className="text-sm font-semibold text-gray-900 leading-snug line-clamp-2 group-hover:text-brand-700 transition-colors">
             {product.name || 'Yükleniyor...'}
           </p>
+          {product.store && (
+            <div className="mt-1">
+              <StoreBadge store={product.store} url={product.url} />
+            </div>
+          )}
 
           <div className="mt-2 space-y-0.5">
             {product.currentPrice != null ? (
               <>
-                <p className="text-xl font-bold text-gray-900">{fmt(product.currentPrice)}</p>
+                <p className="text-xl font-bold text-gray-900"><PriceText price={product.currentPrice} /></p>
                 {product.initialPrice != null && product.initialPrice !== product.currentPrice && (
-                  <p className="text-xs text-gray-400 line-through">{fmt(product.initialPrice)}</p>
+                  <p className="text-xs text-gray-400 line-through"><PriceText price={product.initialPrice} /></p>
                 )}
               </>
             ) : (
@@ -411,7 +431,6 @@ function ProductRow({
           </div>
 
           <div className="mt-3 flex items-center gap-1.5 flex-wrap py-1.5" onClick={e => e.stopPropagation()}>
-            {product.store && <StoreBadge store={product.store} url={product.url} />}
             {product.labels?.map(l => (
               <button
                 key={l.id}
@@ -429,7 +448,7 @@ function ProductRow({
               onNewLabel={onNewLabel}
             />
             {product.targetPrice != null && (
-              <span className="text-xs text-gray-400">🎯 Hedef: {fmt(product.targetPrice)}</span>
+              <span className="text-xs text-gray-400">🎯 Hedef: <PriceText price={product.targetPrice} /></span>
             )}
           </div>
 
@@ -440,7 +459,7 @@ function ProductRow({
         </div>
 
         <div
-          className="hidden sm:flex shrink-0 w-52 border-l border-gray-100 bg-gray-50 flex-col items-center justify-between px-3 py-3 gap-1"
+          className="hidden sm:flex shrink-0 w-52 border-l border-gray-100 bg-white flex-col items-center justify-between px-3 py-3 gap-1"
         >
           {pct !== null && (
             <div className={`flex items-center gap-1 text-xs font-bold ${pctUp ? 'text-red-500' : 'text-green-600'}`}>
@@ -456,7 +475,7 @@ function ProductRow({
           {first && (
             <p className="text-[10px] text-gray-400 text-center leading-tight">
               {fmtDate(first.checkedAt)}<br />
-              <span className="font-medium text-gray-600">{fmt(first.v)}</span>
+              <span className="font-medium text-gray-600"><PriceText price={first.v} /></span>
             </p>
           )}
 
@@ -471,7 +490,7 @@ function ProductRow({
 
       {/* Mobil grafik şeridi */}
       {monthWithPrice.length >= 1 && (
-        <div className="sm:hidden border-t border-gray-100 bg-gray-50 px-3 pt-1 pb-2" onClick={e => e.stopPropagation()}>
+        <div className="sm:hidden border-t border-gray-100 bg-white px-3 pt-1 pb-2" onClick={e => e.stopPropagation()}>
           <div className="flex items-center justify-between mb-0.5">
             {pct !== null && (
               <span className={`text-[10px] font-bold ${pctUp ? 'text-red-500' : 'text-green-600'}`}>
@@ -480,7 +499,7 @@ function ProductRow({
             )}
             {first && (
               <span className="text-[10px] text-gray-400">
-                Başlangıç: <span className="font-medium text-gray-600">{fmt(first.v)}</span>
+                Başlangıç: <span className="font-medium text-gray-600"><PriceText price={first.v} /></span>
               </span>
             )}
           </div>
@@ -509,13 +528,12 @@ function ProductCard({ product }: { product: Product }) {
       onClick={() => navigate(`/products/${product.id}`)}
       className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden cursor-pointer hover:shadow-md hover:-translate-y-0.5 transition-all duration-150"
     >
-      <div className="h-44 bg-gray-50 flex items-center justify-center overflow-hidden p-4">
+      <div className="h-44 bg-white flex items-center justify-center overflow-hidden p-4">
         {imgSrc
-          ? <img src={imgSrc} alt={product.name} className="max-h-full max-w-full object-contain" />
+          ? <img src={imgSrc} alt={product.name} className="block max-h-full max-w-full object-contain" />
           : <span className="text-4xl">🛍️</span>}
       </div>
       <div className="p-4 space-y-2">
-        {product.store && <StoreBadge store={product.store} url={product.url} />}
         {product.labels && product.labels.length > 0 && (
           <div className="flex flex-wrap gap-1">
             {product.labels.map(l => (
@@ -532,9 +550,10 @@ function ProductCard({ product }: { product: Product }) {
         <p className="text-sm font-semibold text-gray-900 leading-snug line-clamp-2">
           {product.name || 'Yükleniyor...'}
         </p>
+        {product.store && <StoreBadge store={product.store} url={product.url} />}
         <div className="flex items-center gap-2 flex-wrap">
           {current != null
-            ? <span className="text-lg font-bold text-gray-900">{fmt(current)}</span>
+            ? <span className="text-lg font-bold text-gray-900"><PriceText price={current} /></span>
             : <span className="text-sm text-gray-400">Fiyat bekleniyor...</span>}
           {pct !== null && Math.abs(pct) >= 0.01 && (
             <span className={`inline-flex items-center gap-0.5 text-xs font-semibold px-1.5 py-0.5 rounded-full ${pctUp ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
@@ -543,10 +562,10 @@ function ProductCard({ product }: { product: Product }) {
           )}
         </div>
         {initial != null && initial !== current && (
-          <p className="text-xs text-gray-400">Başlangıç: {fmt(initial)}</p>
+          <p className="text-xs text-gray-400">Başlangıç: <PriceText price={initial} /></p>
         )}
         {product.targetPrice != null && (
-          <p className="text-xs text-gray-500">🎯 Hedef: {fmt(product.targetPrice)}</p>
+          <p className="text-xs text-gray-500">🎯 Hedef: <PriceText price={product.targetPrice} /></p>
         )}
       </div>
     </div>

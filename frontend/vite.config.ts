@@ -5,6 +5,10 @@ import autoprefixer from 'autoprefixer'
 
 export default defineConfig({
   plugins: [react()],
+  resolve: {
+    // Prefer source TS/TSX files when both TSX and transpiled JS exist.
+    extensions: ['.tsx', '.ts', '.jsx', '.js', '.mjs', '.json'],
+  },
   css: {
     postcss: {
       plugins: [

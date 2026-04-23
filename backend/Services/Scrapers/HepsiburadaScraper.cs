@@ -106,6 +106,29 @@ public class HepsiburadaScraper(
             result.Price = campaignPrice.Value;
         }
 
+        // 3) Playwright network response taraması — kampanya fiyatı ayrı XHR ile geliyorsa
+        // warmup session altında JSON response'lardan en düşük indirimli fiyatı topla.
+        var networkCampaignPrice = await playwright.ExtractLowestPriceFromNetworkWithWarmupAsync(
+            "https://www.hepsiburada.com",
+            url,
+            new[]
+            {
+                "instantDiscountedUnitPrice", "instantDiscountedPrice",
+                "campaignPrice", "discountedPrice", "discountedUnitPrice",
+                "promotionPrice", "offerPrice", "salePrice", "price", "unitPrice"
+            }
+        );
+
+        if (networkCampaignPrice is > 0 && networkCampaignPrice < result.Price)
+        {
+            Logger.LogInformation(
+                "Playwright network kampanya fiyatı {Campaign} < mevcut fiyat {Current} — network fiyatı kullanılıyor.",
+                networkCampaignPrice,
+                result.Price
+            );
+            result.Price = networkCampaignPrice.Value;
+        }
+
         return result;
     }
 
@@ -152,7 +175,7 @@ public class HepsiburadaScraper(
             var sku = skuMatch.Groups[1].Value;
             Logger.LogInformation("Merchant API kampanya fiyatı aranıyor, SKU: {Sku}", sku);
 
-            var client = httpClientFactory.CreateClient("Scraper");
+            var client = HttpClientFactory.CreateClient("Scraper");
             var apiUrl = $"https://www.hepsiburada.com/api/listing/merchantlisting/allmerchants/sku/{sku}";
 
             using var request = new HttpRequestMessage(HttpMethod.Get, apiUrl);
@@ -226,32 +249,74 @@ public class HepsiburadaScraper(
         try
         {
             var jsExtract = @"
-                (() => {
+                (async () => {
                     const text = document.body.innerText;
                     const prices = [];
+
+                    const pushIfValid = (raw) => {
+                        if (!raw) return;
+                        const val = parseFloat(String(raw).replace(/\./g, '').replace(',', '.').replace(/[^\d.]/g, ''));
+                        if (Number.isFinite(val) && val > 10) prices.push(val);
+                    };
 
                     // 'Sepete özel fiyat 1.475,18 TL' pattern
                     const sepeteMatch = text.match(/[Ss]epete[\s\S]{0,30}zel[\s\S]{0,30}fiyat[\s\S]{0,30}?([\d.]+,\d{2})\s*TL/);
                     if (sepeteMatch) {
-                        const raw = sepeteMatch[1].replace(/\./g, '').replace(',', '.');
-                        const val = parseFloat(raw);
-                        if (val > 0) prices.push(val);
+                        pushIfValid(sepeteMatch[1]);
                     }
 
                     // data-test-id='price-current-price'
                     const priceEl = document.querySelector('[data-test-id=""price-current-price""]');
                     if (priceEl) {
-                        const raw = priceEl.textContent.replace(/[^\d.,]/g, '').replace(/\./g, '').replace(',', '.');
-                        const val = parseFloat(raw);
-                        if (val > 0) prices.push(val);
+                        pushIfValid(priceEl.textContent);
                     }
 
                     // Tüm fiyat elementlerini tara
                     const allPriceEls = document.querySelectorAll('[class*=""price""], [class*=""Price""], [data-test-id*=""price""]');
                     for (const el of allPriceEls) {
-                        const raw = el.textContent.replace(/[^\d.,]/g, '').replace(/\./g, '').replace(',', '.');
-                        const val = parseFloat(raw);
-                        if (val > 10) prices.push(val);
+                        pushIfValid(el.textContent);
+                    }
+
+                    // Kampanya fiyatı çoğu zaman ikinci bir XHR ile geliyor.
+                    // Aynı browser session/cookie ile endpoint'i içeriden çağırmayı dene.
+                    const skuFromUrl = (() => {
+                        const m = window.location.pathname.match(/-p(?:m)?-([A-Z0-9]+)/i);
+                        if (m) return m[1].toUpperCase();
+                        return null;
+                    })();
+
+                    const collectNumericFields = (obj, keys) => {
+                        if (!obj || typeof obj !== 'object') return;
+                        if (Array.isArray(obj)) {
+                            for (const item of obj) collectNumericFields(item, keys);
+                            return;
+                        }
+                        for (const [k, v] of Object.entries(obj)) {
+                            if (keys.has(k)) pushIfValid(v);
+                            if (v && typeof v === 'object') collectNumericFields(v, keys);
+                        }
+                    };
+
+                    if (skuFromUrl) {
+                        const endpoint = `/api/listing/merchantlisting/allmerchants/sku/${skuFromUrl}`;
+                        try {
+                            const r = await fetch(endpoint, {
+                                method: 'GET',
+                                credentials: 'include',
+                                headers: { 'accept': 'application/json, text/plain, */*' }
+                            });
+                            if (r.ok) {
+                                const data = await r.json();
+                                const discountKeys = new Set([
+                                    'instantDiscountedUnitPrice', 'instantDiscountedPrice',
+                                    'campaignPrice', 'discountedPrice', 'discountedUnitPrice',
+                                    'promotionPrice', 'offerPrice', 'salePrice', 'price', 'unitPrice'
+                                ]);
+                                collectNumericFields(data, discountKeys);
+                            }
+                        } catch (_) {
+                            // ignore XHR parse errors; DOM sonucu yine kullanılacak
+                        }
                     }
 
                     if (prices.length === 0) return null;
@@ -368,6 +433,15 @@ public class HepsiburadaScraper(
                 price ??= ExtractPriceFromReduxProduct(data);
                 if (price == null) return null;
 
+                // Bazı kampanya/sepete-ozel fiyatlar standart alanlarda degil,
+                // ham NextData JSON icinde farkli key'lerde geliyor.
+                var betterCampaign = TryFindBetterCampaignPriceFromRawJson(jsonText, price.Value);
+                if (betterCampaign is > 0 && betterCampaign < price)
+                {
+                    Logger.LogInformation("Ham JSON kampanya adayi bulundu: {Candidate} < {Current}", betterCampaign, price);
+                    price = betterCampaign;
+                }
+
                 string? name = null;
                 foreach (var key in new[] { "name", "displayName", "productName", "catalogName", "title" })
                 {
@@ -470,6 +544,53 @@ public class HepsiburadaScraper(
         return null;
     }
 
+    private static decimal? TryFindBetterCampaignPriceFromRawJson(string jsonText, decimal currentPrice)
+    {
+        if (string.IsNullOrWhiteSpace(jsonText)) return null;
+
+        decimal? best = null;
+
+        // Kampanya/indirime isaret eden alanlari tara.
+        var campaignKeys = new[]
+        {
+            "instantDiscountedUnitPrice", "instantDiscountedPrice",
+            "campaignPrice", "discountedPrice", "discountedUnitPrice",
+            "promotionPrice", "offerPrice", "finalPrice",
+            "priceAfterDiscount", "priceAfterCoupon", "couponPrice",
+            "checkoutPrice", "basketPrice", "unitPriceAfterDiscount"
+        };
+
+        foreach (var key in campaignKeys)
+        {
+            foreach (Match m in Regex.Matches(jsonText, $@"""{key}""\s*:\s*([\d.]+)", RegexOptions.IgnoreCase))
+            {
+                var candidate = ParsePrice(m.Groups[1].Value);
+                if (!IsReasonableCampaignCandidate(candidate, currentPrice)) continue;
+                if (best == null || candidate < best) best = candidate;
+            }
+        }
+
+        // Bazi payload'larda kampanya yalniz formattedPrice/value ciftinde olur.
+        foreach (Match m in Regex.Matches(jsonText, @"""formattedPrice""\s*:\s*""([^""]+)""", RegexOptions.IgnoreCase))
+        {
+            var candidate = ParsePrice(m.Groups[1].Value);
+            if (!IsReasonableCampaignCandidate(candidate, currentPrice)) continue;
+            if (best == null || candidate < best) best = candidate;
+        }
+
+        return best;
+    }
+
+    private static bool IsReasonableCampaignCandidate(decimal? candidate, decimal currentPrice)
+    {
+        if (candidate is null or <= 10) return false;
+        if (candidate > currentPrice) return false;
+
+        // Uzak alakasiz fiyatlari ele (aksesuar/yan urun vb.)
+        var lowerBound = currentPrice * 0.70m;
+        return candidate >= lowerBound;
+    }
+
     private async Task<ScrapeResult?> TryListingApiAsync(string pageHtml, string url)
     {
         try
@@ -483,7 +604,7 @@ public class HepsiburadaScraper(
             var sku = skuMatch.Groups[1].Value;
             Logger.LogInformation("Listing API deneniyor, SKU: {Sku}", sku);
 
-            var client = httpClientFactory.CreateClient("Scraper");
+            var client = HttpClientFactory.CreateClient("Scraper");
             var apiUrl = $"https://www.hepsiburada.com/api/listing/merchantlisting/allmerchants/sku/{sku}";
 
             using var request = new HttpRequestMessage(HttpMethod.Get, apiUrl);
