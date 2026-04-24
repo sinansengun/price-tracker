@@ -2,6 +2,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../models/product.dart';
 import '../providers/products_provider.dart';
 import '../services/analytics_service.dart';
@@ -20,6 +21,17 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   bool _loading = true;
   bool _checkLoading = false;
   bool _viewTracked = false;
+  _ChartRange _chartRange = _ChartRange.oneMonth;
+
+  String? _resolveImageUrl(String? raw) {
+    if (raw == null) return null;
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) return null;
+
+    final sized = trimmed.replaceAll('{size}', '375');
+    if (sized.startsWith('//')) return 'https:$sized';
+    return sized;
+  }
 
   @override
   void initState() {
@@ -51,6 +63,31 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     await Future.delayed(const Duration(seconds: 2)); // job biraz sürer
     await _load();
     setState(() => _checkLoading = false);
+  }
+
+  Future<void> _openProductUrl(String rawUrl) async {
+    final uri = Uri.tryParse(rawUrl.trim());
+    if (uri == null) return;
+
+    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!ok && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Ürün linki açılamadı.')),
+      );
+    }
+  }
+
+  Duration _lookbackForRange(_ChartRange range) {
+    switch (range) {
+      case _ChartRange.oneWeek:
+        return const Duration(days: 7);
+      case _ChartRange.oneMonth:
+        return const Duration(days: 30);
+      case _ChartRange.threeMonths:
+        return const Duration(days: 90);
+      case _ChartRange.sixMonths:
+        return const Duration(days: 180);
+    }
   }
 
   @override
@@ -88,6 +125,11 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
 
   Widget _buildContent(BuildContext context, UserProduct up) {
     final p = up.product;
+    final filteredHistory = _filterPriceHistory(
+      p.priceHistories,
+      lookback: _lookbackForRange(_chartRange),
+    );
+    final imageUrl = _resolveImageUrl(p.imageUrl);
     final cs = Theme.of(context).colorScheme;
     final isPriceDrop = p.currentPrice != null &&
         p.initialPrice != null &&
@@ -103,7 +145,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (p.imageUrl != null)
+                if (imageUrl != null)
                   Center(
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(12),
@@ -112,7 +154,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                         constraints: const BoxConstraints(maxHeight: 280),
                         color: Colors.white,
                         child: Image.network(
-                          p.imageUrl!,
+                          imageUrl,
                           height: 260,
                           fit: BoxFit.contain,
                           errorBuilder: (_, __, ___) => const SizedBox.shrink(),
@@ -120,13 +162,32 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                       ),
                     ),
                   ),
-                if (p.imageUrl != null) const SizedBox(height: 12),
+                if (imageUrl != null) const SizedBox(height: 12),
                 Text(p.name.isEmpty ? p.url : p.name,
                     style: const TextStyle(
                         fontSize: 16, fontWeight: FontWeight.w600)),
                 if (p.store != null) ...[
                   const SizedBox(height: 6),
-                  StoreBadge(store: p.store!, url: p.url),
+                  Row(
+                    children: [
+                      Flexible(
+                        child: StoreBadge(store: p.store!, url: p.url),
+                      ),
+                      const SizedBox(width: 8),
+                      GestureDetector(
+                        onTap: () => _openProductUrl(p.url),
+                        child: Text(
+                          'Ürün sayfası →',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: cs.onSurface.withValues(alpha: 0.55),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ],
                 const SizedBox(height: 16),
                 Row(
@@ -139,6 +200,12 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                     _PriceTile(
                         label: 'Başlangıç Fiyatı', value: p.initialPrice),
                   ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Eklendi: ${DateFormat('dd.MM.yyyy HH:mm').format(up.addedAt)}',
+                  style:
+                      TextStyle(fontSize: 12, color: cs.onSurface.withOpacity(.5)),
                 ),
                 if (p.lastCheckedAt != null) ...[
                   const SizedBox(height: 8),
@@ -228,12 +295,47 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
           Text('Fiyat Geçmişi',
               style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                _RangeChip(
+                  label: '1H',
+                  selected: _chartRange == _ChartRange.oneWeek,
+                  onTap: () => setState(() => _chartRange = _ChartRange.oneWeek),
+                ),
+                const SizedBox(width: 8),
+                _RangeChip(
+                  label: '1 Ay',
+                  selected: _chartRange == _ChartRange.oneMonth,
+                  onTap: () => setState(() => _chartRange = _ChartRange.oneMonth),
+                ),
+                const SizedBox(width: 8),
+                _RangeChip(
+                  label: '3 Ay',
+                  selected: _chartRange == _ChartRange.threeMonths,
+                  onTap: () => setState(() => _chartRange = _ChartRange.threeMonths),
+                ),
+                const SizedBox(width: 8),
+                _RangeChip(
+                  label: '6 Ay',
+                  selected: _chartRange == _ChartRange.sixMonths,
+                  onTap: () => setState(() => _chartRange = _ChartRange.sixMonths),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
           Card(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(8, 16, 16, 8),
               child: SizedBox(
                 height: 200,
-                child: _PriceChart(histories: _filterPriceHistory(p.priceHistories)),
+                child: _PriceChart(
+                  histories: filteredHistory,
+                  range: _chartRange,
+                  fallbackPrice: p.currentPrice ?? p.initialPrice,
+                ),
               ),
             ),
           ),
@@ -328,15 +430,32 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   }
 }
 
+enum _ChartRange {
+  oneWeek,
+  oneMonth,
+  threeMonths,
+  sixMonths,
+}
+
 /// Fiyat geçmişini filtreler:
 /// - Aynı gün içinde fiyat değiştiyse her değişimi göster.
 /// - Aynı gün içinde fiyat değişmediyse sadece bir kayıt göster.
-List<PricePoint> _filterPriceHistory(List<PricePoint> all) {
+List<PricePoint> _filterPriceHistory(
+  List<PricePoint> all, {
+  Duration? lookback,
+}) {
   if (all.isEmpty) return all;
   final sorted = [...all]..sort((a, b) => a.checkedAt.compareTo(b.checkedAt));
+  final cut = lookback == null ? null : DateTime.now().toLocal().subtract(lookback);
+  final inRange = cut == null
+      ? sorted
+      : sorted.where((h) => !h.checkedAt.isBefore(cut)).toList();
+
+  if (inRange.isEmpty) return const [];
+
   final result = <PricePoint>[];
   PricePoint? last;
-  for (final h in sorted) {
+  for (final h in inRange) {
     if (last == null) {
       result.add(h);
       last = h;
@@ -387,39 +506,156 @@ class _PriceTile extends StatelessWidget {
 
 class _PriceChart extends StatelessWidget {
   final List<PricePoint> histories;
-  const _PriceChart({required this.histories});
+  final _ChartRange range;
+  final double? fallbackPrice;
+
+  const _PriceChart({
+    required this.histories,
+    required this.range,
+    this.fallbackPrice,
+  });
+
+  Duration _durationForRange(_ChartRange selected) {
+    switch (selected) {
+      case _ChartRange.oneWeek:
+        return const Duration(days: 7);
+      case _ChartRange.oneMonth:
+        return const Duration(days: 30);
+      case _ChartRange.threeMonths:
+        return const Duration(days: 90);
+      case _ChartRange.sixMonths:
+        return const Duration(days: 180);
+    }
+  }
+
+  String _rangeLabel(double value) {
+    final rounded = _roundToHundreds(value);
+    return NumberFormat.decimalPattern('tr_TR').format(rounded);
+  }
+
+  int _roundToHundreds(double value) {
+    return ((value / 100).round() * 100);
+  }
+
+  double _niceStep(double span) {
+    if (span <= 20) return 5;
+    if (span <= 50) return 10;
+    if (span <= 100) return 20;
+    if (span <= 250) return 50;
+    if (span <= 500) return 100;
+    return 200;
+  }
+
+  String _bottomLabel(DateTime dt) {
+    switch (range) {
+      case _ChartRange.oneWeek:
+        return DateFormat('dd.MM').format(dt);
+      case _ChartRange.oneMonth:
+      case _ChartRange.threeMonths:
+      case _ChartRange.sixMonths:
+        return DateFormat('dd.MM').format(dt);
+    }
+  }
+
+  int _tickCountForRange() {
+    switch (range) {
+      case _ChartRange.oneWeek:
+        return 4;
+      case _ChartRange.oneMonth:
+        return 3;
+      case _ChartRange.threeMonths:
+        return 4;
+      case _ChartRange.sixMonths:
+        return 5;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    // En son 30 veri noktasını göster (eski → yeni)
-    final data = histories.reversed.toList();
-    if (data.isEmpty) return const SizedBox.shrink();
+    final now = DateTime.now().toLocal();
+    final start = now.subtract(_durationForRange(range));
+    final totalMinutes = now.difference(start).inMinutes;
+    final minX = 0.0;
+    final maxX = totalMinutes.toDouble();
 
-    final spots = data.asMap().entries.map((e) {
-      return FlSpot(e.key.toDouble(), e.value.price);
-    }).toList();
+    final data = [...histories]..sort((a, b) => a.checkedAt.compareTo(b.checkedAt));
 
-    final minY = data.map((h) => h.price).reduce((a, b) => a < b ? a : b);
-    final maxY = data.map((h) => h.price).reduce((a, b) => a > b ? a : b);
-    final padding = (maxY - minY) * 0.1 + 1;
+    final spots = data.isEmpty
+        ? (fallbackPrice == null
+            ? <FlSpot>[]
+            : <FlSpot>[
+                FlSpot(minX, fallbackPrice!),
+                FlSpot(maxX, fallbackPrice!),
+              ])
+        : data
+        .map((h) => FlSpot(h.checkedAt.difference(start).inMinutes.toDouble(), h.price))
+            .toList();
 
-    // X ekseni için gösterilecek indeksler (max 4 etiket)
-    final step = (data.length / 4).ceil().clamp(1, data.length);
-    final labelIndices = <int>{};
-    for (int i = 0; i < data.length; i += step) {
-      labelIndices.add(i);
+    final yValues = spots.map((s) => s.y).toList();
+    final base = fallbackPrice ?? 0;
+    final minY = yValues.isEmpty
+        ? base - 10
+        : yValues.reduce((a, b) => a < b ? a : b);
+    final maxY = yValues.isEmpty
+        ? base + 10
+        : yValues.reduce((a, b) => a > b ? a : b);
+    final rawRange = (maxY - minY).abs();
+    final normalizedRange = rawRange < 20 ? 20.0 : rawRange;
+    final step = _niceStep(normalizedRange);
+    var chartMinY = (minY / step).floor() * step;
+    var chartMaxY = (maxY / step).ceil() * step;
+    if (chartMinY == chartMaxY) {
+      chartMinY -= step;
+      chartMaxY += step;
     }
-    labelIndices.add(data.length - 1);
+
+    // En düşük aşağı, en yüksek yukarı yuvarlandığı için bu çizgi daha nefesli görünür.
+    chartMinY -= step * 0.2;
+    chartMaxY += step * 0.2;
+    const intervalCount = 3;
+    final yInterval = (chartMaxY - chartMinY) / (intervalCount - 1);
+    final midPrice = (minY + maxY) / 2;
+    final axisLabelValues = [minY, midPrice, maxY].map(_roundToHundreds).toList();
+
+    final tickCount = _tickCountForRange();
+    final xInterval = (maxX - minX) / (tickCount - 1);
+    final xTicks = <double>[];
+    final xLabels = <double, String>{};
+    final usedDayLabels = <String>{};
+    for (int i = 0; i < tickCount; i++) {
+      final x = minX + (xInterval * i);
+      final dt = start.add(Duration(minutes: x.round()));
+      final label = _bottomLabel(dt);
+      final isDuplicate = usedDayLabels.contains(label);
+      if (!isDuplicate) {
+        usedDayLabels.add(label);
+      }
+      xTicks.add(x);
+      xLabels[x] = isDuplicate && i != tickCount - 1 ? '' : label;
+    }
 
     return LineChart(
       LineChartData(
-        minY: minY - padding,
-        maxY: maxY + padding,
+        minX: minX,
+        maxX: maxX,
+        minY: chartMinY,
+        maxY: chartMaxY,
         gridData: FlGridData(
           show: true,
-          drawVerticalLine: false,
+          drawVerticalLine: true,
+          verticalInterval: xInterval,
+          horizontalInterval: yInterval,
+          getDrawingVerticalLine: (_) => FlLine(
+            color: const Color(0xFFD1D5DB),
+            strokeWidth: 1,
+            dashArray: [3, 3],
+          ),
           getDrawingHorizontalLine: (_) =>
-              FlLine(color: Colors.grey.shade100, strokeWidth: 1),
+              FlLine(
+                color: const Color(0xFFD1D5DB),
+                strokeWidth: 1,
+                dashArray: [3, 3],
+              ),
         ),
         borderData: FlBorderData(show: false),
         titlesData: FlTitlesData(
@@ -430,20 +666,29 @@ class _PriceChart extends StatelessWidget {
           bottomTitles: AxisTitles(
             sideTitles: SideTitles(
               showTitles: true,
-              reservedSize: 28,
+              reservedSize: 24,
               getTitlesWidget: (v, meta) {
-                final idx = v.toInt();
-                if (!labelIndices.contains(idx) ||
-                    idx < 0 ||
-                    idx >= data.length) {
+                double? matched;
+                for (final t in xTicks) {
+                  if ((v - t).abs() <= (xInterval * 0.38)) {
+                    matched = t;
+                    break;
+                  }
+                }
+
+                if (matched == null) {
                   return const SizedBox.shrink();
                 }
+
+                final label = xLabels[matched] ?? '';
+                if (label.isEmpty) return const SizedBox.shrink();
+
                 return Padding(
                   padding: const EdgeInsets.only(top: 4),
                   child: Text(
-                    DateFormat('dd.MM').format(data[idx].checkedAt),
+                    label,
                     style: const TextStyle(
-                        fontSize: 9, color: Color(0xFF9CA3AF)),
+                        fontSize: 8, color: Color(0xFF9CA3AF)),
                   ),
                 );
               },
@@ -452,45 +697,101 @@ class _PriceChart extends StatelessWidget {
           leftTitles: AxisTitles(
             sideTitles: SideTitles(
               showTitles: true,
-              reservedSize: 62,
-              getTitlesWidget: (v, _) => Text(
-                fmtPrice(v),
-                style: const TextStyle(
-                    fontSize: 9, color: Color(0xFF9CA3AF)),
-              ),
+              reservedSize: 52,
+              interval: yInterval,
+              getTitlesWidget: (v, _) {
+                // Sol eksende yalnızca: düşük, orta (ortalama), yüksek.
+                final slot = ((v - chartMinY) / yInterval).round();
+                if (slot < 0 || slot >= intervalCount) {
+                  return const SizedBox.shrink();
+                }
+
+                final target = chartMinY + (yInterval * slot);
+                if ((v - target).abs() > (yInterval * 0.45)) {
+                  return const SizedBox.shrink();
+                }
+
+                final labelValue = switch (slot) {
+                  0 => minY,
+                  1 => midPrice,
+                  _ => maxY,
+                };
+
+                final currentRounded = axisLabelValues[slot];
+                final seenBefore = axisLabelValues
+                    .take(slot)
+                    .any((v) => v == currentRounded);
+                if (seenBefore) return const SizedBox.shrink();
+
+                return Text(
+                  _rangeLabel(labelValue),
+                  style: const TextStyle(fontSize: 9, color: Color(0xFF9CA3AF)),
+                );
+              },
             ),
           ),
         ),
         lineBarsData: [
-          LineChartBarData(
-            spots: spots,
-            isCurved: true,
-            color: Theme.of(context).colorScheme.primary,
-            barWidth: 2.5,
-            dotData: FlDotData(
-              show: true,
-              getDotPainter: (spot, pct, bar, idx) =>
-                  FlDotCirclePainter(
-                    radius: 3,
-                    color: Theme.of(context).colorScheme.primary,
-                    strokeWidth: 0,
-                    strokeColor: Colors.transparent,
-                  ),
+          if (spots.isNotEmpty)
+            LineChartBarData(
+              spots: spots,
+              isCurved: false,
+              color: Theme.of(context).colorScheme.primary,
+              barWidth: 2.5,
+              dotData: const FlDotData(show: false),
+              belowBarData: BarAreaData(
+                show: true,
+                color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.08),
+              ),
             ),
-            belowBarData: BarAreaData(
-              show: true,
-              color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.08),
-            ),
-          ),
         ],
         lineTouchData: LineTouchData(
           touchTooltipData: LineTouchTooltipData(
             getTooltipItems: (spots) => spots
                 .map((s) => LineTooltipItem(
-                      '${fmtPrice(s.y)} ₺\n${DateFormat('dd.MM HH:mm').format(data[s.x.toInt()].checkedAt)}',
+                      '${_rangeLabel(s.y)} ₺\n${DateFormat('dd.MM HH:mm').format(start.add(Duration(minutes: s.x.toInt())))}',
                       const TextStyle(color: Colors.white, fontSize: 11),
                     ))
                 .toList(),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RangeChip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _RangeChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: selected ? cs.primary.withValues(alpha: 0.14) : Colors.transparent,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: selected ? cs.primary : cs.outline.withValues(alpha: 0.4),
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            color: selected ? cs.primary : cs.onSurface.withValues(alpha: 0.75),
           ),
         ),
       ),

@@ -62,13 +62,16 @@ function buildLast30DaySeries(histories?: Product['priceHistories']): DetailChar
   const startMs = end.getTime() - 29 * 86_400_000
   const endExclusive = end.getTime() + 86_400_000
 
-  const byDay = new Map<string, { price: number; checkedAt: string }>()
+  const byDay = new Map<string, { price: number; checkedAt: string; t: number }>()
 
   for (const h of histories ?? []) {
     const t = new Date(h.checkedAt).getTime()
     if (Number.isNaN(t) || t < startMs || t >= endExclusive) continue
     const key = localDayKey(new Date(t))
-    byDay.set(key, { price: h.price, checkedAt: h.checkedAt })
+    const prev = byDay.get(key)
+    if (!prev || t > prev.t) {
+      byDay.set(key, { price: h.price, checkedAt: h.checkedAt, t })
+    }
   }
 
   const series: DetailChartPoint[] = []

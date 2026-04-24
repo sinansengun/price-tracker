@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../models/product.dart';
 import '../providers/auth_provider.dart';
 import '../providers/products_provider.dart';
@@ -222,6 +223,28 @@ class _ProductCard extends StatelessWidget {
   final UserProduct up;
   const _ProductCard({required this.up});
 
+  Future<void> _openProductUrl(BuildContext context, String rawUrl) async {
+    final uri = Uri.tryParse(rawUrl.trim());
+    if (uri == null) return;
+
+    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!ok && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Ürün linki açılamadı.')),
+      );
+    }
+  }
+
+  String? _resolveImageUrl(String? raw) {
+    if (raw == null) return null;
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) return null;
+
+    final sized = trimmed.replaceAll('{size}', '200');
+    if (sized.startsWith('//')) return 'https:$sized';
+    return sized;
+  }
+
   String _formatAddedDate(DateTime dt) {
     final d = dt.toLocal();
     final day = d.day.toString().padLeft(2, '0');
@@ -232,6 +255,7 @@ class _ProductCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = up.product;
+    final imageUrl = _resolveImageUrl(p.imageUrl);
     final cs = Theme.of(context).colorScheme;
     final isPriceDrop = p.currentPrice != null &&
         p.initialPrice != null &&
@@ -253,9 +277,9 @@ class _ProductCard extends StatelessWidget {
                     height: 92,
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(8),
-                      child: p.imageUrl != null
+                      child: imageUrl != null
                           ? Image.network(
-                              p.imageUrl!,
+                              imageUrl,
                               width: 92,
                               height: 92,
                                 fit: BoxFit.contain,
@@ -279,7 +303,26 @@ class _ProductCard extends StatelessWidget {
                         ),
                         if (p.store != null) ...[
                           const SizedBox(height: 2),
-                          StoreBadge(store: p.store!, url: p.url),
+                          Row(
+                            children: [
+                              Flexible(
+                                child: StoreBadge(store: p.store!, url: p.url),
+                              ),
+                              const SizedBox(width: 8),
+                              GestureDetector(
+                                onTap: () => _openProductUrl(context, p.url),
+                                child: Text(
+                                  'Ürün sayfası →',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: cs.onSurface.withValues(alpha: 0.55),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ],
                         const SizedBox(height: 4),
                         if (p.currentPrice != null)

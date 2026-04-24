@@ -150,13 +150,16 @@ function buildLast30DaySeries(histories?: PriceHistory[]): ChartPoint[] {
   const startMs = end.getTime() - 29 * 86_400_000
   const endExclusive = end.getTime() + 86_400_000
 
-  const byDay = new Map<string, { price: number; checkedAt: string }>()
+  const byDay = new Map<string, { price: number; checkedAt: string; t: number }>()
 
   for (const h of histories ?? []) {
     const t = new Date(h.checkedAt).getTime()
     if (Number.isNaN(t) || t < startMs || t >= endExclusive) continue
     const key = localDayKey(new Date(t))
-    byDay.set(key, { price: h.price, checkedAt: h.checkedAt })
+    const prev = byDay.get(key)
+    if (!prev || t > prev.t) {
+      byDay.set(key, { price: h.price, checkedAt: h.checkedAt, t })
+    }
   }
 
   const series: ChartPoint[] = []
@@ -378,7 +381,9 @@ function ProductRow({
     ? [...histories].sort((a, b) => new Date(a.checkedAt).getTime() - new Date(b.checkedAt).getTime())
     : []
   const monthSeries = buildLast30DaySeries(sorted)
-  const monthWithPrice = monthSeries.filter((p): p is ChartPoint & { v: number; checkedAt: string } => p.v != null && !!p.checkedAt)
+  const monthWithPrice = monthSeries
+    .filter((p): p is ChartPoint & { v: number; checkedAt: string } => p.v != null && !!p.checkedAt)
+    .sort((a, b) => new Date(a.checkedAt).getTime() - new Date(b.checkedAt).getTime())
   const first = monthWithPrice[0]
   const last  = monthWithPrice[monthWithPrice.length - 1]
 
