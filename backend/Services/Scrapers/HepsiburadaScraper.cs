@@ -752,33 +752,68 @@ public class HepsiburadaScraper(
     {
         try
         {
-            var client = HttpClientFactory.CreateClient("Scraper");
-            // Redirect'i takip etme — sadece Location header'ını oku
+            // Redirect'i takip etme — ilk Location header'ından target URL'yi çıkar.
             using var handler = new HttpClientHandler { AllowAutoRedirect = false };
             using var tempClient = new HttpClient(handler);
-            using var response = await tempClient.GetAsync(shortUrl);
+            using var request = new HttpRequestMessage(HttpMethod.Get, shortUrl);
+            request.Headers.TryAddWithoutValidation("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
+            request.Headers.TryAddWithoutValidation("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+            request.Headers.TryAddWithoutValidation("Accept-Language", "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7");
+
+            using var response = await tempClient.SendAsync(request);
 
             var location = response.Headers.Location?.ToString();
-            if (string.IsNullOrEmpty(location)) return null;
+            if (string.IsNullOrEmpty(location))
+            {
+                Logger.LogWarning("app.hb.biz yanıtında Location header yok: {Url} (HTTP {Status})", shortUrl, (int)response.StatusCode);
+                return null;
+            }
 
-            // adj_fallback=https%3A%2F%2Fwww.hepsiburada.com%2F...
-            var match = Regex.Match(location,
-                @"adj_fallback=([^&]+)", RegexOptions.IgnoreCase);
-            if (!match.Success) return null;
+            // 1) Redirect doğrudan hepsiburada.com'a gidiyorsa onu kullan.
+            if (TryNormalizeHepsiburadaUrl(location, out var directHbUrl))
+                return directHbUrl;
 
-            var fallback = Uri.UnescapeDataString(match.Groups[1].Value);
+            // 2) Adjust redirect: adj_fallback parametresini çöz.
+            var fallbackMatch = Regex.Match(location, @"(?:\?|&)adj_fallback=([^&]+)", RegexOptions.IgnoreCase);
+            if (fallbackMatch.Success)
+            {
+                var fallback = Uri.UnescapeDataString(fallbackMatch.Groups[1].Value);
+                // Bazı payload'larda değer iki kez encode gelebiliyor.
+                if (fallback.Contains("%2F", StringComparison.OrdinalIgnoreCase))
+                    fallback = Uri.UnescapeDataString(fallback);
 
-            // Sadece hepsiburada.com URL'lerini kabul et
-            if (!fallback.Contains("hepsiburada.com")) return null;
+                if (TryNormalizeHepsiburadaUrl(fallback, out var fallbackHbUrl))
+                    return fallbackHbUrl;
+            }
 
-            // UTM ve tracking parametrelerini temizle, sadece temel URL'yi tut
-            var uri = new Uri(fallback);
-            return $"{uri.Scheme}://{uri.Host}{uri.AbsolutePath}";
+            // 3) adj_fallback yoksa sku ile URL üretmeyi dene.
+            var skuMatch = Regex.Match(location, @"(?:\?|&)sku=([A-Z0-9]+)", RegexOptions.IgnoreCase);
+            if (skuMatch.Success)
+            {
+                var sku = skuMatch.Groups[1].Value.ToUpperInvariant();
+                return $"https://www.hepsiburada.com/-p-{sku}";
+            }
+
+            Logger.LogWarning("app.hb.biz linkinden hepsiburada URL'si çıkarılamadı: {Url} | Location: {Location}",
+                shortUrl, location[..Math.Min(400, location.Length)]);
+            return null;
         }
         catch (Exception ex)
         {
             Logger.LogWarning(ex, "app.hb.biz link çözümlemesi başarısız: {Url}", shortUrl);
             return null;
         }
+    }
+
+    private static bool TryNormalizeHepsiburadaUrl(string url, out string normalized)
+    {
+        normalized = string.Empty;
+
+        if (string.IsNullOrWhiteSpace(url)) return false;
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)) return false;
+        if (!uri.Host.EndsWith("hepsiburada.com", StringComparison.OrdinalIgnoreCase)) return false;
+
+        normalized = $"{uri.Scheme}://{uri.Host}{uri.AbsolutePath}";
+        return true;
     }
 }
