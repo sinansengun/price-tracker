@@ -115,7 +115,7 @@ public class ProductsController(
             await db.SaveChangesAsync();
 
             // İlk fiyat çekimi
-            jobClient.Enqueue<PriceCheckJob>(j => j.CheckProductAsync(product.Id));
+            jobClient.Enqueue<PriceCheckJob>(j => j.CheckProductAsync(product.Id, null));
         }
 
         // Kullanıcı bu ürünü zaten takip ediyor mu?
@@ -177,7 +177,7 @@ public class ProductsController(
         var up = await db.UserProducts.FirstOrDefaultAsync(up => up.Id == id && up.UserId == UserId);
         if (up == null) return NotFound();
 
-        jobClient.Enqueue<PriceCheckJob>(j => j.CheckProductAsync(up.ProductId));
+        jobClient.Enqueue<PriceCheckJob>(j => j.CheckProductAsync(up.ProductId, null));
         return Accepted(new { message = "Fiyat kontrolü başlatıldı" });
     }
 

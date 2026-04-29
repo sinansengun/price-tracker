@@ -5,6 +5,7 @@ using FirebaseAdmin.Messaging;
 using Google.Apis.Auth.OAuth2;
 using Google.Apis.Auth.OAuth2.Responses;
 using Hangfire;
+using Hangfire.Console;
 using Hangfire.PostgreSql;
 using Hangfire.Dashboard;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -74,6 +75,7 @@ builder.Services.AddHangfire(cfg => cfg
     .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
     .UseSimpleAssemblyNameTypeSerializer()
     .UseRecommendedSerializerSettings()
+    .UseConsole()
     .UsePostgreSqlStorage(opt => opt.UseNpgsqlConnection(connectionString)));
 builder.Services.AddHangfireServer();
 
@@ -406,7 +408,7 @@ if (hangfireDashboardEnabled)
 var recurringJobManager = app.Services.GetRequiredService<IRecurringJobManager>();
 recurringJobManager.AddOrUpdate<PriceCheckJob>(
     "check-all-prices",
-    job => job.CheckAllProductsAsync(),
+    job => job.CheckAllProductsAsync(null),
     "0 8,12,16,20 * * *");
 
 await app.RunAsync();

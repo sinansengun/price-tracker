@@ -1,6 +1,8 @@
 using FirebaseAdmin;
 using FirebaseAdmin.Messaging;
 using Google.Apis.Auth.OAuth2;
+using Hangfire.Console;
+using Hangfire.Server;
 using Microsoft.EntityFrameworkCore;
 using PriceTracker.Data;
 using PriceTracker.Models;
@@ -17,24 +19,37 @@ public class PriceCheckJob(
 {
     private static readonly HttpClient FcmHttp = new();
 
-    public async Task CheckAllProductsAsync()
+    public async Task CheckAllProductsAsync(PerformContext? context = null)
     {
         var products = await db.Products.ToListAsync();
         logger.LogInformation("Checking prices for {Count} products", products.Count);
+        context?.WriteLine($"Checking prices for {products.Count} products");
 
         foreach (var product in products)
         {
-            await CheckProductAsync(product.Id);
+            await CheckProductAsync(product.Id, context);
         }
+
+        context?.WriteLine("Price check run completed.");
     }
 
-    public async Task CheckProductAsync(int productId)
+    public async Task CheckProductAsync(int productId, PerformContext? context = null)
     {
+        context?.WriteLine($"Checking productId={productId}");
+
         var product = await db.Products.FindAsync(productId);
-        if (product == null) return;
+        if (product == null)
+        {
+            context?.WriteLine($"Product not found: productId={productId}");
+            return;
+        }
 
         var result = await scraper.ScrapeAsync(product.Url);
-        if (result == null) return;
+        if (result == null)
+        {
+            context?.WriteLine($"Scrape failed: productId={productId} url={product.Url}");
+            return;
+        }
 
         var previousPrice = product.CurrentPrice;
         product.CurrentPrice = result.Price;
@@ -59,19 +74,27 @@ public class PriceCheckJob(
 
         await db.SaveChangesAsync();
 
+        context?.WriteLine($"Saved price for '{product.Name}': {(previousPrice?.ToString("F2") ?? "-" )} -> {result.Price:F2}");
+
         if (previousPrice.HasValue && result.Price < previousPrice.Value)
         {
             logger.LogInformation(
                 "Price dropped for '{Name}': {OldPrice} → {NewPrice}",
                 product.Name, previousPrice.Value, result.Price);
+            context?.WriteLine($"Price dropped for '{product.Name}': {previousPrice.Value:F2} -> {result.Price:F2}");
 
-            await SendPriceDropNotificationsAsync(product, previousPrice.Value, result.Price);
+            await SendPriceDropNotificationsAsync(product, previousPrice.Value, result.Price, context);
         }
         else if (previousPrice.HasValue && previousPrice.Value != result.Price)
         {
             logger.LogInformation(
                 "Price changed for '{Name}': {OldPrice} → {NewPrice}",
                 product.Name, previousPrice.Value, result.Price);
+            context?.WriteLine($"Price changed for '{product.Name}': {previousPrice.Value:F2} -> {result.Price:F2}");
+        }
+        else
+        {
+            context?.WriteLine($"No price change for '{product.Name}' ({result.Price:F2})");
         }
     }
 
@@ -134,7 +157,7 @@ public class PriceCheckJob(
         return new { matchedUsers = userProducts.Count, results };
     }
 
-    private async Task SendPriceDropNotificationsAsync(Product product, decimal oldPrice, decimal newPrice)
+    private async Task SendPriceDropNotificationsAsync(Product product, decimal oldPrice, decimal newPrice, PerformContext? context = null)
     {
         if (FirebaseApp.DefaultInstance == null) return;
 
@@ -142,6 +165,8 @@ public class PriceCheckJob(
             .Include(up => up.User)
             .Where(up => up.ProductId == product.Id && up.User.FcmToken != null && up.User.FcmToken != "")
             .ToListAsync();
+
+        context?.WriteLine($"Sending notifications: productId={product.Id}, recipients={userProducts.Count}");
 
         foreach (var up in userProducts)
         {
@@ -162,16 +187,25 @@ public class PriceCheckJob(
                     }
                 };
                 await FirebaseMessaging.DefaultInstance.SendAsync(message);
+                context?.WriteLine($"Notification sent: userId={up.UserId}");
             }
             catch (Exception ex)
             {
                 logger.LogWarning(ex, "FCM bildirimi gönderilemedi: userId={UserId}", up.UserId);
+                context?.WriteLine($"Notification failed: userId={up.UserId}, error={ex.Message}");
                 if (ex is FirebaseMessagingException fex &&
                     fex.Message.Contains("missing required authentication credential", StringComparison.OrdinalIgnoreCase))
                 {
                     var fallback = await SendViaHttpV1Async(up.User.FcmToken!, product, oldPrice, newPrice, up.Id);
                     if (!fallback.success)
+                    {
                         logger.LogWarning("FCM fallback da başarısız oldu: userId={UserId}, error={Error}", up.UserId, fallback.error);
+                        context?.WriteLine($"Fallback notification failed: userId={up.UserId}, error={fallback.error}");
+                    }
+                    else
+                    {
+                        context?.WriteLine($"Fallback notification sent: userId={up.UserId}");
+                    }
                 }
             }
         }
