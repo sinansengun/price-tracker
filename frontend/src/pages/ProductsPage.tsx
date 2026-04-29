@@ -19,7 +19,7 @@ import {
   Product, Label, PriceHistory
 } from '../api/api'
 
-function AddProductModal({ onClose, onAdded }: { onClose: () => void; onAdded: () => void }) {
+function AddProductModal({ onClose, onAdded }: { onClose: () => void; onAdded: (message: string) => void }) {
   const [url, setUrl]               = useState('')
   const [targetPrice, setTargetPrice] = useState('')
   const [loading, setLoading]       = useState(false)
@@ -38,8 +38,8 @@ function AddProductModal({ onClose, onAdded }: { onClose: () => void; onAdded: (
         .replace(/\u200b|\u200c|\u200d|\ufeff/g, '')
         .replace(/&amp;/g, '&')
       const tp = targetPrice ? parseFloat(targetPrice.replace(',', '.')) : undefined
-      await createProduct(cleanUrl, tp)
-      onAdded()
+      const res = await createProduct(cleanUrl, tp)
+      onAdded(res.data.message ?? 'Urun eklendi. Fiyat bilgisi aliniyor...')
       onClose()
     } catch (err: any) {
       setError(err?.response?.data?.error ?? 'Bir hata oluştu.')
@@ -347,7 +347,7 @@ function MiniChart({ points }: { points: ChartPoint[] }) {
             stroke={color}
             strokeWidth={1.8}
             isAnimationActive={false}
-            connectNulls={false}
+            connectNulls={true}
             dot={false}
             activeDot={false}
           />
@@ -585,6 +585,7 @@ export default function ProductsPage() {
   const [activeLabel, setActiveLabel] = useState<number | null>(null)
   const [loading, setLoading]         = useState(true)
   const [showModal, setShowModal]     = useState(false)
+  const [infoMessage, setInfoMessage] = useState('')
   const [view, setView]               = useState<ViewMode>('list')
 
   const load = async () => {
@@ -658,6 +659,12 @@ export default function ProductsPage() {
       </header>
 
       <main className="max-w-5xl mx-auto px-3 sm:px-4 py-6 sm:py-8">
+        {infoMessage && (
+          <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+            {infoMessage}
+          </div>
+        )}
+
         {/* Label filter bar */}
         {!loading && labels.length > 0 && (
           <div className="flex items-center gap-2 flex-wrap mb-6">
@@ -741,7 +748,13 @@ export default function ProductsPage() {
       </main>
 
       {showModal && (
-        <AddProductModal onClose={() => setShowModal(false)} onAdded={load} />
+        <AddProductModal
+          onClose={() => setShowModal(false)}
+          onAdded={async (message) => {
+            await load()
+            setInfoMessage(message)
+          }}
+        />
       )}
     </div>
   )

@@ -77,7 +77,7 @@ function DetailMiniChart({ points }) {
     const halfRange = Math.max(maxDeviation * 1.15, basePadding);
     const yMin = firstPrice - halfRange;
     const yMax = firstPrice + halfRange;
-    return (_jsx("div", { className: "w-full rounded-lg border border-dashed border-gray-300 bg-white/70 px-2 py-2", children: _jsx(ResponsiveContainer, { width: "100%", height: 108, children: _jsxs(LineChart, { data: points, children: [_jsx(YAxis, { hide: true, domain: [yMin, yMax] }), _jsx(Line, { type: "linear", dataKey: "v", stroke: color, strokeWidth: 1.8, isAnimationActive: false, connectNulls: false, dot: false, activeDot: false }), _jsx(Tooltip, { content: ({ active, payload }) => active && payload?.length && payload[0].value != null
+    return (_jsx("div", { className: "w-full rounded-lg border border-dashed border-gray-300 bg-white/70 px-2 py-2", children: _jsx(ResponsiveContainer, { width: "100%", height: 108, children: _jsxs(LineChart, { data: points, children: [_jsx(YAxis, { hide: true, domain: [yMin, yMax] }), _jsx(Line, { type: "linear", dataKey: "v", stroke: color, strokeWidth: 1.8, isAnimationActive: false, connectNulls: true, dot: false, activeDot: false }), _jsx(Tooltip, { content: ({ active, payload }) => active && payload?.length && payload[0].value != null
                             ? _jsx("div", { className: "bg-white border border-gray-200 rounded px-2 py-1 text-xs shadow", children: fmt(payload[0].value) })
                             : null })] }) }) }));
 }

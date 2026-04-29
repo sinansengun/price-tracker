@@ -116,7 +116,7 @@ function DetailMiniChart({ points }: { points: DetailChartPoint[] }) {
             stroke={color}
             strokeWidth={1.8}
             isAnimationActive={false}
-            connectNulls={false}
+            connectNulls={true}
             dot={false}
             activeDot={false}
           />

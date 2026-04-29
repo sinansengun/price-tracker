@@ -76,10 +76,7 @@ public class HepsiburadaScraper(
         // 2. JSON-LD
         result ??= TryExtractFromJsonLd(html, url, "Hepsiburada");
 
-        // 3. Listing API (full ScrapeResult fallback)
-        result ??= await TryListingApiAsync(html, url);
-
-        // 4. HTML meta/data attributes (fallback)
+        // 3. HTML meta/data attributes (fallback)
         result ??= TryExtractFromHtml(html, url);
 
         if (result == null) return null;
@@ -88,16 +85,7 @@ public class HepsiburadaScraper(
         // SSR JSON'da kampanya fiyatı bulunmuyor; merchant listing API'sinden
         // ve Playwright ile DOM'dan daha düşük fiyat aramayı dene.
 
-        // 1) Merchant listing API — HttpClient ile çalışır, Playwright'a gerek yok
-        var apiPrice = await TryFindLowestApiPriceAsync(html, url);
-        if (apiPrice is > 0 && apiPrice < result.Price)
-        {
-            Logger.LogInformation("Merchant API kampanya fiyatı {Api} < SSR fiyatı {Ssr} — API fiyatı kullanılıyor.",
-                apiPrice, result.Price);
-            result.Price = apiPrice.Value;
-        }
-
-        // 2) Playwright DOM — cookie warming ile 403 bypass
+        // 1) Playwright DOM — cookie warming ile 403 bypass
         var campaignPrice = await TryExtractCampaignPriceViaPlaywright(url);
         if (campaignPrice is > 0 && campaignPrice < result.Price)
         {
@@ -106,7 +94,7 @@ public class HepsiburadaScraper(
             result.Price = campaignPrice.Value;
         }
 
-        // 3) Playwright network response taraması — kampanya fiyatı ayrı XHR ile geliyorsa
+        // 2) Playwright network response taraması — kampanya fiyatı ayrı XHR ile geliyorsa
         // warmup session altında JSON response'lardan en düşük indirimli fiyatı topla.
         var networkCampaignPrice = await playwright.ExtractLowestPriceFromNetworkWithWarmupAsync(
             "https://www.hepsiburada.com",
@@ -160,86 +148,6 @@ public class HepsiburadaScraper(
     }
 
     /// <summary>
-    /// Merchant listing API'sinden kampanya/indirim fiyatlarını arar.
-    /// Ham JSON üzerinde regex ile tüm nesting seviyelerindeki fiyat alanlarını tarar.
-    /// </summary>
-    private async Task<decimal?> TryFindLowestApiPriceAsync(string pageHtml, string url)
-    {
-        try
-        {
-            var skuMatch = Regex.Match(url, @"-p(?:m)?-([A-Z0-9]+)(?:[?#]|$)");
-            if (!skuMatch.Success)
-                skuMatch = Regex.Match(pageHtml, @"""sku""\s*:\s*""([^""]+)""");
-            if (!skuMatch.Success) return null;
-
-            var sku = skuMatch.Groups[1].Value;
-            Logger.LogInformation("Merchant API kampanya fiyatı aranıyor, SKU: {Sku}", sku);
-
-            var client = HttpClientFactory.CreateClient("Scraper");
-            var apiUrl = $"https://www.hepsiburada.com/api/listing/merchantlisting/allmerchants/sku/{sku}";
-
-            using var request = new HttpRequestMessage(HttpMethod.Get, apiUrl);
-            request.Headers.TryAddWithoutValidation("User-Agent",      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
-            request.Headers.TryAddWithoutValidation("Accept",          "application/json, text/plain, */*");
-            request.Headers.TryAddWithoutValidation("Accept-Language", "tr-TR,tr;q=0.9");
-            request.Headers.TryAddWithoutValidation("Referer",         url);
-            request.Headers.TryAddWithoutValidation("Origin",          "https://www.hepsiburada.com");
-
-            using var response = await client.SendAsync(request);
-            var body = await response.Content.ReadAsStringAsync();
-            Logger.LogInformation("Merchant API HTTP {Status} | Body ({Len} chars): {Preview}",
-                (int)response.StatusCode, body.Length, body[..Math.Min(600, body.Length)]);
-
-            if (!response.IsSuccessStatusCode) return null;
-
-            // Kampanya/indirim alanlarını ham JSON üzerinde regex ile tara (nesting bağımsız)
-            decimal? lowest = null;
-
-            foreach (var field in new[]
-            {
-                "instantDiscountPrice", "instantDiscountedPrice", "instantDiscountedUnitPrice",
-                "campaignPrice", "discountedPrice", "discountedUnitPrice",
-                "promotionPrice", "offerPrice"
-            })
-            {
-                foreach (Match m in Regex.Matches(body, $@"""{field}""\s*:\s*([\d.]+)"))
-                {
-                    var p = ParsePrice(m.Groups[1].Value);
-                    if (p is > 10 && (lowest == null || p < lowest))
-                    {
-                        Logger.LogInformation("Merchant API field '{Field}' = {Price}", field, p);
-                        lowest = p;
-                    }
-                }
-            }
-
-            // Kampanya fiyatı bulunamadıysa genel fiyat alanlarından en düşüğünü al
-            if (lowest == null)
-            {
-                foreach (var field in new[] { "salePrice", "price", "unitPrice" })
-                {
-                    foreach (Match m in Regex.Matches(body, $@"""{field}""\s*:\s*([\d.]+)"))
-                    {
-                        var p = ParsePrice(m.Groups[1].Value);
-                        if (p is > 10 && (lowest == null || p < lowest))
-                            lowest = p;
-                    }
-                }
-            }
-
-            if (lowest != null)
-                Logger.LogInformation("Merchant API en düşük fiyat: {Price} (SKU: {Sku})", lowest, sku);
-
-            return lowest;
-        }
-        catch (Exception ex)
-        {
-            Logger.LogWarning(ex, "Merchant API fiyat araması başarısız");
-            return null;
-        }
-    }
-
-    /// <summary>
     /// Playwright ile sayfayı render edip kampanya/indirim fiyatını DOM'dan JS ile çıkarır.
     /// Cookie warming: önce hepsiburada.com anasayfasını ziyaret edip cookie alır,
     /// ardından ürün sayfasına gider.
@@ -275,48 +183,6 @@ public class HepsiburadaScraper(
                     const allPriceEls = document.querySelectorAll('[class*=""price""], [class*=""Price""], [data-test-id*=""price""]');
                     for (const el of allPriceEls) {
                         pushIfValid(el.textContent);
-                    }
-
-                    // Kampanya fiyatı çoğu zaman ikinci bir XHR ile geliyor.
-                    // Aynı browser session/cookie ile endpoint'i içeriden çağırmayı dene.
-                    const skuFromUrl = (() => {
-                        const m = window.location.pathname.match(/-p(?:m)?-([A-Z0-9]+)/i);
-                        if (m) return m[1].toUpperCase();
-                        return null;
-                    })();
-
-                    const collectNumericFields = (obj, keys) => {
-                        if (!obj || typeof obj !== 'object') return;
-                        if (Array.isArray(obj)) {
-                            for (const item of obj) collectNumericFields(item, keys);
-                            return;
-                        }
-                        for (const [k, v] of Object.entries(obj)) {
-                            if (keys.has(k)) pushIfValid(v);
-                            if (v && typeof v === 'object') collectNumericFields(v, keys);
-                        }
-                    };
-
-                    if (skuFromUrl) {
-                        const endpoint = `/api/listing/merchantlisting/allmerchants/sku/${skuFromUrl}`;
-                        try {
-                            const r = await fetch(endpoint, {
-                                method: 'GET',
-                                credentials: 'include',
-                                headers: { 'accept': 'application/json, text/plain, */*' }
-                            });
-                            if (r.ok) {
-                                const data = await r.json();
-                                const discountKeys = new Set([
-                                    'instantDiscountedUnitPrice', 'instantDiscountedPrice',
-                                    'campaignPrice', 'discountedPrice', 'discountedUnitPrice',
-                                    'promotionPrice', 'offerPrice', 'salePrice', 'price', 'unitPrice'
-                                ]);
-                                collectNumericFields(data, discountKeys);
-                            }
-                        } catch (_) {
-                            // ignore XHR parse errors; DOM sonucu yine kullanılacak
-                        }
                     }
 
                     if (prices.length === 0) return null;
@@ -589,97 +455,6 @@ public class HepsiburadaScraper(
         // Uzak alakasiz fiyatlari ele (aksesuar/yan urun vb.)
         var lowerBound = currentPrice * 0.70m;
         return candidate >= lowerBound;
-    }
-
-    private async Task<ScrapeResult?> TryListingApiAsync(string pageHtml, string url)
-    {
-        try
-        {
-            // SKU'yu önce JSON-LD'den, bulamazsa URL'den al
-            var skuMatch = Regex.Match(pageHtml, @"""sku""\s*:\s*""([^""]+)""");
-            if (!skuMatch.Success)
-                skuMatch = Regex.Match(url, @"-p(?:m)?-([A-Z0-9]+)(?:[?#]|$)");
-            if (!skuMatch.Success) return null;
-
-            var sku = skuMatch.Groups[1].Value;
-            Logger.LogInformation("Listing API deneniyor, SKU: {Sku}", sku);
-
-            var client = HttpClientFactory.CreateClient("Scraper");
-            var apiUrl = $"https://www.hepsiburada.com/api/listing/merchantlisting/allmerchants/sku/{sku}";
-
-            using var request = new HttpRequestMessage(HttpMethod.Get, apiUrl);
-            request.Headers.TryAddWithoutValidation("User-Agent",        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
-            request.Headers.TryAddWithoutValidation("Accept",            "application/json, text/plain, */*");
-            request.Headers.TryAddWithoutValidation("Accept-Language",   "tr-TR,tr;q=0.9");
-            request.Headers.TryAddWithoutValidation("Origin",            "https://www.hepsiburada.com");
-            request.Headers.TryAddWithoutValidation("Referer",           url);
-            request.Headers.TryAddWithoutValidation("Sec-Fetch-Mode",    "cors");
-            request.Headers.TryAddWithoutValidation("Sec-Fetch-Site",    "same-origin");
-            request.Headers.TryAddWithoutValidation("Sec-Fetch-Dest",    "empty");
-            request.Headers.TryAddWithoutValidation("X-Requested-With", "XMLHttpRequest");
-
-            using var response = await client.SendAsync(request);
-            var body = await response.Content.ReadAsStringAsync();
-            Logger.LogInformation("Listing API HTTP {Status} | {Sku}", (int)response.StatusCode, sku);
-
-            if (!response.IsSuccessStatusCode)
-            {
-                Logger.LogWarning("Listing API başarısız: HTTP {Status}. Body: {Body}",
-                    (int)response.StatusCode, body[..Math.Min(300, body.Length)]);
-                return null;
-            }
-
-            using var doc = JsonDocument.Parse(body);
-            var root = doc.RootElement;
-            var data = root;
-            foreach (var key in new[] { "result", "data", "listing", "product" })
-            {
-                if (root.TryGetProperty(key, out var el)) { data = el; break; }
-            }
-
-            decimal? price = null;
-            foreach (var key in new[] {
-                "instantDiscountedUnitPrice", "campaignPrice", "discountedUnitPrice",
-                "discountedPrice", "promotionPrice", "offerPrice",
-                "salePrice", "price", "unitPrice", "lowestPrice", "currentPrice" })
-            {
-                if (data.TryGetProperty(key, out var prEl) && prEl.ValueKind != JsonValueKind.Null)
-                {
-                    price = ParsePrice(prEl.ToString());
-                    if (price != null) break;
-                }
-            }
-
-            if (price == null)
-            {
-                Logger.LogWarning("Listing API: fiyat bulunamadı. Body: {Body}", body[..Math.Min(500, body.Length)]);
-                return null;
-            }
-
-            string? name = null;
-            foreach (var key in new[] { "name", "displayName", "productName" })
-            {
-                if (data.TryGetProperty(key, out var nEl) && nEl.ValueKind == JsonValueKind.String)
-                { name = nEl.GetString(); if (!string.IsNullOrEmpty(name)) break; }
-            }
-            if (string.IsNullOrEmpty(name))
-            {
-                var ogTitle = Regex.Match(pageHtml, @"<meta[^>]+property=[""']og:title[""'][^>]+content=[""']([^""']+)[""']", RegexOptions.IgnoreCase);
-                name = ogTitle.Success ? ogTitle.Groups[1].Value.Trim() : null;
-            }
-
-            string? imageUrl = null;
-            var ogImg = Regex.Match(pageHtml, @"<meta[^>]+property=[""']og:image[""'][^>]+content=[""']([^""']+)[""']", RegexOptions.IgnoreCase);
-            if (ogImg.Success) imageUrl = ogImg.Groups[1].Value;
-
-            Logger.LogInformation("Listing API başarılı: {Name} = {Price}", name, price);
-            return new ScrapeResult { Name = name ?? "Bilinmeyen Ürün", Price = price.Value, ImageUrl = imageUrl, Store = "Hepsiburada" };
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Listing API hatası: {Url}", url);
-            return null;
-        }
     }
 
     private ScrapeResult? TryExtractFromHtml(string html, string url)

@@ -133,7 +133,14 @@ public class ProductsController(
         db.UserProducts.Add(userProduct);
         await db.SaveChangesAsync();
 
-        return CreatedAtAction(nameof(GetById), new { id = userProduct.Id }, new { id = userProduct.Id });
+        return CreatedAtAction(
+            nameof(GetById),
+            new { id = userProduct.Id },
+            new
+            {
+                id = userProduct.Id,
+                message = "Urun eklendi. Ilk fiyat kontrolu baslatildi, fiyat bilgisi kisa sure icinde gorunecek."
+            });
     }
 
     // DELETE api/products/{id}  — id: UserProduct.Id

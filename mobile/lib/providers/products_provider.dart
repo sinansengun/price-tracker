@@ -9,11 +9,13 @@ class ProductsProvider extends ChangeNotifier {
   List<Label> _labels = [];
   bool _loading = false;
   String? _error;
+  String? _lastAddProductMessage;
 
   List<UserProduct> get products => _products;
   List<Label> get labels => _labels;
   bool get loading => _loading;
   String? get error => _error;
+  String? get lastAddProductMessage => _lastAddProductMessage;
 
   Future<void> fetchAll() async {
     _loading = true;
@@ -66,6 +68,7 @@ class ProductsProvider extends ChangeNotifier {
   Future<String?> addProduct(String url,
       {String? name, double? targetPrice, int? initialLabelId}) async {
     try {
+      _lastAddProductMessage = null;
       final res = await http.post(
         ApiClient.uri('/products'),
         headers: ApiClient.headers,
@@ -79,6 +82,9 @@ class ProductsProvider extends ChangeNotifier {
       if (res.statusCode == 201) {
         final body = jsonDecode(res.body) as Map<String, dynamic>;
         final userProductId = body['id'] as int?;
+        final message = body['message'] as String?;
+        _lastAddProductMessage = message ??
+            'Urun eklendi. Ilk fiyat kontrolu baslatildi, fiyat bilgisi kisa sure icinde gorunecek.';
 
         if (initialLabelId != null && userProductId != null) {
           await http.post(

@@ -85,7 +85,7 @@ export type ProductDetail = Product
 export const getProducts   = ()              => http.get<UserProductResponse[]>('/products')
 export const getProduct    = (id: number)    => http.get<UserProductResponse>(`/products/${id}`)
 export const createProduct = (url: string, targetPrice?: number) =>
-  http.post<{ id: number }>('/products', { url, targetPrice: targetPrice ?? null })
+  http.post<{ id: number; message?: string }>('/products', { url, targetPrice: targetPrice ?? null })
 export const checkProduct  = (id: number)    => http.post(`/products/${id}/check`)
 export const deleteProduct = (id: number)    => http.delete(`/products/${id}`)
 export const updateTargetPrice = (id: number, targetPrice: number | null) =>

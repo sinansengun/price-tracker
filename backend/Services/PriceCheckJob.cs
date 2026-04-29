@@ -21,6 +21,8 @@ public class PriceCheckJob(
 
     public async Task CheckAllProductsAsync(PerformContext? context = null)
     {
+        using var contextScope = HangfireConsoleContextAccessor.Push(context);
+
         var products = await db.Products.ToListAsync();
         logger.LogInformation("Checking prices for {Count} products", products.Count);
         context?.WriteLine($"Checking prices for {products.Count} products");
@@ -35,6 +37,8 @@ public class PriceCheckJob(
 
     public async Task CheckProductAsync(int productId, PerformContext? context = null)
     {
+        using var contextScope = HangfireConsoleContextAccessor.Push(context);
+
         context?.WriteLine($"Checking productId={productId}");
 
         var product = await db.Products.FindAsync(productId);

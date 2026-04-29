@@ -744,6 +744,11 @@ class _AddProductSheetState extends State<_AddProductSheet> {
       await AnalyticsService.instance
           .logAddProductSuccess(hasTargetPrice: targetPrice != null);
       if (!mounted) return;
+      final infoMessage = productsProvider.lastAddProductMessage ??
+          'Urun eklendi. Fiyat bilgisi aliniyor...';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(infoMessage)),
+      );
       navigator.pop();
     } else {
       await AnalyticsService.instance

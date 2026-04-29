@@ -19,6 +19,8 @@ using PriceTracker.Services.Scrapers;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Logging.AddProvider(new HangfireConsoleLoggerProvider());
+
 var connectionString = builder.Configuration.GetConnectionString("Default")
     ?? throw new InvalidOperationException("Connection string 'Default' not found.");
 
