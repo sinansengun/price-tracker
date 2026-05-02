@@ -292,53 +292,74 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
 
         // Fiyat grafiği
         if (p.priceHistories.isNotEmpty) ...[
-          Text('Fiyat Geçmişi',
-              style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 8),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                _RangeChip(
-                  label: '1H',
-                  selected: _chartRange == _ChartRange.oneWeek,
-                  onTap: () => setState(() => _chartRange = _ChartRange.oneWeek),
-                ),
-                const SizedBox(width: 8),
-                _RangeChip(
-                  label: '1 Ay',
-                  selected: _chartRange == _ChartRange.oneMonth,
-                  onTap: () => setState(() => _chartRange = _ChartRange.oneMonth),
-                ),
-                const SizedBox(width: 8),
-                _RangeChip(
-                  label: '3 Ay',
-                  selected: _chartRange == _ChartRange.threeMonths,
-                  onTap: () => setState(() => _chartRange = _ChartRange.threeMonths),
-                ),
-                const SizedBox(width: 8),
-                _RangeChip(
-                  label: '6 Ay',
-                  selected: _chartRange == _ChartRange.sixMonths,
-                  onTap: () => setState(() => _chartRange = _ChartRange.sixMonths),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 8),
           Card(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(8, 16, 16, 8),
-              child: SizedBox(
-                height: 200,
-                child: _PriceChart(
-                  histories: filteredHistory,
-                  range: _chartRange,
-                  fallbackPrice: p.currentPrice ?? p.initialPrice,
-                ),
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.show_chart, size: 18),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Fiyat Geçmişi',
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        _RangeChip(
+                          label: '1H',
+                          selected: _chartRange == _ChartRange.oneWeek,
+                          onTap: () =>
+                              setState(() => _chartRange = _ChartRange.oneWeek),
+                        ),
+                        const SizedBox(width: 8),
+                        _RangeChip(
+                          label: '1 Ay',
+                          selected: _chartRange == _ChartRange.oneMonth,
+                          onTap: () =>
+                              setState(() => _chartRange = _ChartRange.oneMonth),
+                        ),
+                        const SizedBox(width: 8),
+                        _RangeChip(
+                          label: '3 Ay',
+                          selected: _chartRange == _ChartRange.threeMonths,
+                          onTap: () =>
+                              setState(() => _chartRange = _ChartRange.threeMonths),
+                        ),
+                        const SizedBox(width: 8),
+                        _RangeChip(
+                          label: '6 Ay',
+                          selected: _chartRange == _ChartRange.sixMonths,
+                          onTap: () =>
+                              setState(() => _chartRange = _ChartRange.sixMonths),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(0, 0, 8, 0),
+                    child: SizedBox(
+                      height: 200,
+                      child: _PriceChart(
+                        histories: filteredHistory,
+                        range: _chartRange,
+                        fallbackPrice: p.currentPrice ?? p.initialPrice,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
+          const SizedBox(height: 4),
           Align(
             alignment: Alignment.centerRight,
             child: TextButton.icon(
@@ -537,15 +558,6 @@ class _PriceChart extends StatelessWidget {
     return ((value / 100).round() * 100);
   }
 
-  double _niceStep(double span) {
-    if (span <= 20) return 5;
-    if (span <= 50) return 10;
-    if (span <= 100) return 20;
-    if (span <= 250) return 50;
-    if (span <= 500) return 100;
-    return 200;
-  }
-
   String _bottomLabel(DateTime dt) {
     switch (range) {
       case _ChartRange.oneWeek:
@@ -599,28 +611,24 @@ class _PriceChart extends StatelessWidget {
     final maxY = yValues.isEmpty
         ? base + 10
         : yValues.reduce((a, b) => a > b ? a : b);
-    final rawRange = (maxY - minY).abs();
-    final normalizedRange = rawRange < 20 ? 20.0 : rawRange;
-    final step = _niceStep(normalizedRange);
-    var chartMinY = (minY / step).floor() * step;
-    var chartMaxY = (maxY / step).ceil() * step;
-    if (chartMinY == chartMaxY) {
-      chartMinY -= step;
-      chartMaxY += step;
+    var axisMinLabel = (minY / 100).floor() * 100;
+    var axisMaxLabel = (maxY / 100).ceil() * 100;
+    if (axisMaxLabel - axisMinLabel < 200) {
+      final center = _roundToHundreds((minY + maxY) / 2);
+      axisMinLabel = center - 100;
+      axisMaxLabel = center + 100;
     }
 
-    // En düşük aşağı, en yüksek yukarı yuvarlandığı için bu çizgi daha nefesli görünür.
-    chartMinY -= step * 0.2;
-    chartMaxY += step * 0.2;
+    final axisMidLabel = _roundToHundreds((axisMinLabel + axisMaxLabel) / 2);
+    final axisLabelValues = [axisMinLabel, axisMidLabel, axisMaxLabel];
+    final chartMinY = axisMinLabel.toDouble();
+    final chartMaxY = axisMaxLabel.toDouble();
     const intervalCount = 3;
     final yInterval = (chartMaxY - chartMinY) / (intervalCount - 1);
-    final midPrice = (minY + maxY) / 2;
-    final axisLabelValues = [minY, midPrice, maxY].map(_roundToHundreds).toList();
 
     final tickCount = _tickCountForRange();
     final xInterval = (maxX - minX) / (tickCount - 1);
-    final xTicks = <double>[];
-    final xLabels = <double, String>{};
+    final xLabels = <String>[];
     final usedDayLabels = <String>{};
     for (int i = 0; i < tickCount; i++) {
       final x = minX + (xInterval * i);
@@ -630,8 +638,7 @@ class _PriceChart extends StatelessWidget {
       if (!isDuplicate) {
         usedDayLabels.add(label);
       }
-      xTicks.add(x);
-      xLabels[x] = isDuplicate && i != tickCount - 1 ? '' : label;
+      xLabels.add(isDuplicate ? '' : label);
     }
 
     return LineChart(
@@ -667,20 +674,19 @@ class _PriceChart extends StatelessWidget {
             sideTitles: SideTitles(
               showTitles: true,
               reservedSize: 24,
+              interval: xInterval,
               getTitlesWidget: (v, meta) {
-                double? matched;
-                for (final t in xTicks) {
-                  if ((v - t).abs() <= (xInterval * 0.38)) {
-                    matched = t;
-                    break;
-                  }
-                }
-
-                if (matched == null) {
+                final slot = ((v - minX) / xInterval).round();
+                if (slot < 0 || slot >= tickCount) {
                   return const SizedBox.shrink();
                 }
 
-                final label = xLabels[matched] ?? '';
+                final target = minX + (xInterval * slot);
+                if ((v - target).abs() > (xInterval * 0.1)) {
+                  return const SizedBox.shrink();
+                }
+
+                final label = xLabels[slot];
                 if (label.isEmpty) return const SizedBox.shrink();
 
                 return Padding(
@@ -711,12 +717,6 @@ class _PriceChart extends StatelessWidget {
                   return const SizedBox.shrink();
                 }
 
-                final labelValue = switch (slot) {
-                  0 => minY,
-                  1 => midPrice,
-                  _ => maxY,
-                };
-
                 final currentRounded = axisLabelValues[slot];
                 final seenBefore = axisLabelValues
                     .take(slot)
@@ -724,7 +724,7 @@ class _PriceChart extends StatelessWidget {
                 if (seenBefore) return const SizedBox.shrink();
 
                 return Text(
-                  _rangeLabel(labelValue),
+                  NumberFormat.decimalPattern('tr_TR').format(currentRounded),
                   style: const TextStyle(fontSize: 9, color: Color(0xFF9CA3AF)),
                 );
               },

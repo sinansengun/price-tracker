@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
 import '../api/api_client.dart';
 import '../models/product.dart';
 
@@ -24,8 +23,8 @@ class ProductsProvider extends ChangeNotifier {
 
     try {
       final results = await Future.wait([
-        http.get(ApiClient.uri('/products'), headers: ApiClient.headers),
-        http.get(ApiClient.uri('/labels'), headers: ApiClient.headers),
+        ApiClient.get('/products'),
+        ApiClient.get('/labels'),
       ]);
       final productsRes = results[0];
       final labelsRes = results[1];
@@ -53,10 +52,7 @@ class ProductsProvider extends ChangeNotifier {
 
   Future<UserProduct?> fetchById(int id) async {
     try {
-      final res = await http.get(
-        ApiClient.uri('/products/$id'),
-        headers: ApiClient.headers,
-      );
+      final res = await ApiClient.get('/products/$id');
       if (res.statusCode == 200) {
         return UserProduct.fromJson(
             jsonDecode(res.body) as Map<String, dynamic>);
@@ -69,9 +65,8 @@ class ProductsProvider extends ChangeNotifier {
       {String? name, double? targetPrice, int? initialLabelId}) async {
     try {
       _lastAddProductMessage = null;
-      final res = await http.post(
-        ApiClient.uri('/products'),
-        headers: ApiClient.headers,
+      final res = await ApiClient.post(
+        '/products',
         body: jsonEncode({
           'url': url,
           if (name != null) 'name': name,
@@ -87,9 +82,8 @@ class ProductsProvider extends ChangeNotifier {
             'Urun eklendi. Ilk fiyat kontrolu baslatildi, fiyat bilgisi kisa sure icinde gorunecek.';
 
         if (initialLabelId != null && userProductId != null) {
-          await http.post(
-            ApiClient.uri('/products/$userProductId/labels/$initialLabelId'),
-            headers: ApiClient.headers,
+          await ApiClient.post(
+            '/products/$userProductId/labels/$initialLabelId',
           );
         }
 
@@ -106,10 +100,7 @@ class ProductsProvider extends ChangeNotifier {
 
   Future<void> deleteProduct(int id) async {
     try {
-      await http.delete(
-        ApiClient.uri('/products/$id'),
-        headers: ApiClient.headers,
-      );
+      await ApiClient.delete('/products/$id');
       _products.removeWhere((p) => p.id == id);
       notifyListeners();
     } catch (_) {}
@@ -117,9 +108,8 @@ class ProductsProvider extends ChangeNotifier {
 
   Future<String?> updateTargetPrice(int id, double? price) async {
     try {
-      final res = await http.patch(
-        ApiClient.uri('/products/$id/target-price'),
-        headers: ApiClient.headers,
+      final res = await ApiClient.patch(
+        '/products/$id/target-price',
         body: jsonEncode({'targetPrice': price}),
       );
       if (res.statusCode == 200) {
@@ -134,10 +124,7 @@ class ProductsProvider extends ChangeNotifier {
 
   Future<void> manualCheck(int id) async {
     try {
-      await http.post(
-        ApiClient.uri('/products/$id/check'),
-        headers: ApiClient.headers,
-      );
+      await ApiClient.post('/products/$id/check');
     } catch (_) {}
   }
 
@@ -145,9 +132,8 @@ class ProductsProvider extends ChangeNotifier {
 
   Future<Label?> createLabel(String name, String color) async {
     try {
-      final res = await http.post(
-        ApiClient.uri('/labels'),
-        headers: ApiClient.headers,
+      final res = await ApiClient.post(
+        '/labels',
         body: jsonEncode({'name': name, 'color': color}),
       );
       if (res.statusCode == 201) {
@@ -162,7 +148,7 @@ class ProductsProvider extends ChangeNotifier {
 
   Future<void> deleteLabel(int id) async {
     try {
-      await http.delete(ApiClient.uri('/labels/$id'), headers: ApiClient.headers);
+      await ApiClient.delete('/labels/$id');
       _labels = _labels.where((l) => l.id != id).toList();
       // Remove from all products
       _products = _products.map((up) {
@@ -181,10 +167,7 @@ class ProductsProvider extends ChangeNotifier {
 
   Future<bool> addProductLabel(int productId, int labelId) async {
     try {
-      final res = await http.post(
-        ApiClient.uri('/products/$productId/labels/$labelId'),
-        headers: ApiClient.headers,
-      );
+      final res = await ApiClient.post('/products/$productId/labels/$labelId');
       if (res.statusCode == 200 || res.statusCode == 204) {
         _updateProductLabels(
             productId, [..._productById(productId)!.labels, _labelById(labelId)!]);
@@ -196,10 +179,7 @@ class ProductsProvider extends ChangeNotifier {
 
   Future<bool> removeProductLabel(int productId, int labelId) async {
     try {
-      final res = await http.delete(
-        ApiClient.uri('/products/$productId/labels/$labelId'),
-        headers: ApiClient.headers,
-      );
+      final res = await ApiClient.delete('/products/$productId/labels/$labelId');
       if (res.statusCode == 200 || res.statusCode == 204) {
         _updateProductLabels(productId,
             _productById(productId)!.labels.where((l) => l.id != labelId).toList());

@@ -11,6 +11,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<PriceHistory> PriceHistories => Set<PriceHistory>();
     public DbSet<Label> Labels => Set<Label>();
     public DbSet<UserProduct> UserProducts => Set<UserProduct>();
+    public DbSet<NotificationHistory> NotificationHistories => Set<NotificationHistory>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -62,5 +63,31 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
             .HasMany(up => up.Labels)
             .WithMany(l => l.UserProducts)
             .UsingEntity("UserProductLabel");
+
+        modelBuilder.Entity<NotificationHistory>(e =>
+        {
+            e.HasKey(n => n.Id);
+            e.Property(n => n.Title).HasMaxLength(200);
+            e.Property(n => n.Body).HasMaxLength(1000);
+            e.Property(n => n.Error).HasMaxLength(1000);
+            e.Property(n => n.OldPrice).HasColumnType("decimal(18,2)");
+            e.Property(n => n.NewPrice).HasColumnType("decimal(18,2)");
+            e.HasIndex(n => new { n.UserId, n.SentAt });
+
+            e.HasOne(n => n.User)
+             .WithMany(u => u.NotificationHistories)
+             .HasForeignKey(n => n.UserId)
+             .OnDelete(DeleteBehavior.Cascade);
+
+            e.HasOne(n => n.Product)
+             .WithMany()
+             .HasForeignKey(n => n.ProductId)
+             .OnDelete(DeleteBehavior.SetNull);
+
+            e.HasOne(n => n.UserProduct)
+             .WithMany()
+             .HasForeignKey(n => n.UserProductId)
+             .OnDelete(DeleteBehavior.SetNull);
+        });
     }
 }

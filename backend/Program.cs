@@ -102,10 +102,12 @@ builder.Services.AddScoped<ISiteScraper, AbtSaatScraper>();
 builder.Services.AddScoped<ISiteScraper, AydinSaatScraper>();
 builder.Services.AddScoped<ISiteScraper, AslanSaatScraper>();
 builder.Services.AddScoped<ISiteScraper, EdipSaatScraper>();
+builder.Services.AddScoped<ISiteScraper, ErsaSaatScraper>();
 builder.Services.AddScoped<ISiteScraper, TrabzonsporScraper>();
 
 // App services
 builder.Services.AddScoped<ScraperService>();
+builder.Services.AddSingleton<FirebaseRemoteConfigService>();
 builder.Services.AddScoped<PriceCheckJob>();
 
 builder.Services.AddCors(opts =>
@@ -148,6 +150,7 @@ try
     // FCM v1 endpoint requires OAuth access token with proper scopes.
     googleCredential = googleCredential.CreateScoped(
         "https://www.googleapis.com/auth/firebase.messaging",
+        "https://www.googleapis.com/auth/firebase.remoteconfig",
         "https://www.googleapis.com/auth/cloud-platform");
 
     FirebaseApp.Create(new AppOptions

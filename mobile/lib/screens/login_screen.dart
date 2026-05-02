@@ -40,6 +40,14 @@ class _LoginScreenState extends State<LoginScreen> {
     if (ok && mounted) router.go('/products');
   }
 
+  Future<void> _submitGoogle() async {
+    final auth = context.read<AuthProvider>();
+    final router = GoRouter.of(context);
+
+    final ok = await auth.loginWithGoogle();
+    if (ok && mounted) router.go('/products');
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
@@ -106,6 +114,15 @@ class _LoginScreenState extends State<LoginScreen> {
                               width: 20,
                               child: CircularProgressIndicator(strokeWidth: 2))
                           : const Text('Giriş Yap'),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: auth.loading ? null : _submitGoogle,
+                      icon: const Icon(Icons.account_circle_outlined),
+                      label: const Text('Google ile devam et'),
                     ),
                   ),
                   const SizedBox(height: 12),

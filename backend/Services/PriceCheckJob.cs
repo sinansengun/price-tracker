@@ -15,6 +15,7 @@ namespace PriceTracker.Services;
 public class PriceCheckJob(
     AppDbContext db,
     ScraperService scraper,
+    FirebaseRemoteConfigService remoteConfigService,
     ILogger<PriceCheckJob> logger)
 {
     private static readonly HttpClient FcmHttp = new();
@@ -82,10 +83,32 @@ public class PriceCheckJob(
 
         if (previousPrice.HasValue && result.Price < previousPrice.Value)
         {
+            var minDropPercent = await remoteConfigService.GetMinPriceDropPercentAsync();
+            var dropPercent = previousPrice.Value <= 0
+                ? 0
+                : ((previousPrice.Value - result.Price) / previousPrice.Value) * 100;
+
+            if (dropPercent < minDropPercent)
+            {
+                logger.LogInformation(
+                    "Price drop below threshold for '{Name}': drop={DropPercent:F2}%, threshold={ThresholdPercent:F2}%",
+                    product.Name,
+                    dropPercent,
+                    minDropPercent);
+                context?.WriteLine(
+                    $"Price dropped but no notification (below threshold): drop={dropPercent:F2}%, threshold={minDropPercent:F2}%");
+                return;
+            }
+
             logger.LogInformation(
-                "Price dropped for '{Name}': {OldPrice} → {NewPrice}",
-                product.Name, previousPrice.Value, result.Price);
-            context?.WriteLine($"Price dropped for '{product.Name}': {previousPrice.Value:F2} -> {result.Price:F2}");
+                "Price dropped for '{Name}': {OldPrice} → {NewPrice} (drop={DropPercent:F2}%, threshold={ThresholdPercent:F2}%)",
+                product.Name,
+                previousPrice.Value,
+                result.Price,
+                dropPercent,
+                minDropPercent);
+            context?.WriteLine(
+                $"Price dropped for '{product.Name}': {previousPrice.Value:F2} -> {result.Price:F2} (drop={dropPercent:F2}%, threshold={minDropPercent:F2}%)");
 
             await SendPriceDropNotificationsAsync(product, previousPrice.Value, result.Price, context);
         }
@@ -114,6 +137,9 @@ public class PriceCheckJob(
         if (userProducts.Count == 0) return new { error = "No users with FCM token for this product", productId = product.Id };
 
         var results = new List<object>();
+        var historyEntries = new List<NotificationHistory>();
+        var title = "Fiyat Düştü! 🎉";
+        var body = $"{product.Name}: {oldPrice:F2}₺ → {newPrice:F2}₺";
         foreach (var up in userProducts)
         {
             try
@@ -123,8 +149,8 @@ public class PriceCheckJob(
                     Token = up.User.FcmToken,
                     Notification = new Notification
                     {
-                        Title = "Fiyat Düştü! 🎉",
-                        Body = $"{product.Name}: {oldPrice:F2}₺ → {newPrice:F2}₺"
+                        Title = title,
+                        Body = body
                     },
                     Data = new Dictionary<string, string>
                     {
@@ -134,6 +160,7 @@ public class PriceCheckJob(
                 };
                 var response = await FirebaseMessaging.DefaultInstance.SendAsync(message);
                 results.Add(new { userId = up.UserId, status = "sent", response });
+                historyEntries.Add(BuildNotificationHistory(up, product.Id, oldPrice, newPrice, title, body, true, null));
             }
             catch (Exception ex)
             {
@@ -151,13 +178,30 @@ public class PriceCheckJob(
                         response = fallback.response,
                         error = fallback.success ? null : fallback.error
                     });
+                    historyEntries.Add(BuildNotificationHistory(
+                        up,
+                        product.Id,
+                        oldPrice,
+                        newPrice,
+                        title,
+                        body,
+                        fallback.success,
+                        fallback.success ? null : (fallback.error ?? fallback.response)));
                 }
                 else
                 {
                     results.Add(new { userId = up.UserId, status = "failed", error = ex.Message });
+                    historyEntries.Add(BuildNotificationHistory(up, product.Id, oldPrice, newPrice, title, body, false, ex.Message));
                 }
             }
         }
+
+        if (historyEntries.Count > 0)
+        {
+            db.NotificationHistories.AddRange(historyEntries);
+            await db.SaveChangesAsync();
+        }
+
         return new { matchedUsers = userProducts.Count, results };
     }
 
@@ -171,6 +215,9 @@ public class PriceCheckJob(
             .ToListAsync();
 
         context?.WriteLine($"Sending notifications: productId={product.Id}, recipients={userProducts.Count}");
+        var historyEntries = new List<NotificationHistory>();
+        var title = "Fiyat Düştü! 🎉";
+        var body = $"{product.Name}: {oldPrice:F2}₺ → {newPrice:F2}₺";
 
         foreach (var up in userProducts)
         {
@@ -181,8 +228,8 @@ public class PriceCheckJob(
                     Token = up.User.FcmToken,
                     Notification = new Notification
                     {
-                        Title = "Fiyat Düştü! 🎉",
-                        Body = $"{product.Name}: {oldPrice:F2}₺ → {newPrice:F2}₺"
+                        Title = title,
+                        Body = body
                     },
                     Data = new Dictionary<string, string>
                     {
@@ -192,6 +239,7 @@ public class PriceCheckJob(
                 };
                 await FirebaseMessaging.DefaultInstance.SendAsync(message);
                 context?.WriteLine($"Notification sent: userId={up.UserId}");
+                historyEntries.Add(BuildNotificationHistory(up, product.Id, oldPrice, newPrice, title, body, true, null));
             }
             catch (Exception ex)
             {
@@ -205,14 +253,59 @@ public class PriceCheckJob(
                     {
                         logger.LogWarning("FCM fallback da başarısız oldu: userId={UserId}, error={Error}", up.UserId, fallback.error);
                         context?.WriteLine($"Fallback notification failed: userId={up.UserId}, error={fallback.error}");
+                        historyEntries.Add(BuildNotificationHistory(
+                            up,
+                            product.Id,
+                            oldPrice,
+                            newPrice,
+                            title,
+                            body,
+                            false,
+                            fallback.error ?? fallback.response ?? ex.Message));
                     }
                     else
                     {
                         context?.WriteLine($"Fallback notification sent: userId={up.UserId}");
+                        historyEntries.Add(BuildNotificationHistory(up, product.Id, oldPrice, newPrice, title, body, true, null));
                     }
+                }
+                else
+                {
+                    historyEntries.Add(BuildNotificationHistory(up, product.Id, oldPrice, newPrice, title, body, false, ex.Message));
                 }
             }
         }
+
+        if (historyEntries.Count > 0)
+        {
+            db.NotificationHistories.AddRange(historyEntries);
+            await db.SaveChangesAsync();
+        }
+    }
+
+    private static NotificationHistory BuildNotificationHistory(
+        UserProduct up,
+        int productId,
+        decimal oldPrice,
+        decimal newPrice,
+        string title,
+        string body,
+        bool isSuccess,
+        string? error)
+    {
+        return new NotificationHistory
+        {
+            UserId = up.UserId,
+            ProductId = productId,
+            UserProductId = up.Id,
+            Title = title,
+            Body = body,
+            OldPrice = oldPrice,
+            NewPrice = newPrice,
+            IsSuccess = isSuccess,
+            Error = string.IsNullOrWhiteSpace(error) ? null : error,
+            SentAt = DateTime.UtcNow
+        };
     }
 
     private async Task<(bool success, string? response, string? error)> SendViaHttpV1Async(

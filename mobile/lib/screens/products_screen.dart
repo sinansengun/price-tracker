@@ -5,7 +5,6 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/product.dart';
-import '../providers/auth_provider.dart';
 import '../providers/products_provider.dart';
 import '../services/analytics_service.dart';
 import 'label_sheet.dart';
@@ -51,7 +50,6 @@ class ProductsScreenState extends State<ProductsScreen> {
   @override
   Widget build(BuildContext context) {
     final products = context.watch<ProductsProvider>();
-    final auth = context.read<AuthProvider>();
 
     final allLabels = products.labels;
     final filtered = _filterLabelId == null
@@ -65,12 +63,14 @@ class ProductsScreenState extends State<ProductsScreen> {
         title: const Text('Takip Listesi'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.logout),
-            tooltip: 'Çıkış Yap',
-            onPressed: () async {
-              await auth.logout();
-              if (context.mounted) context.go('/login');
-            },
+            icon: const Icon(Icons.notifications_none_rounded),
+            tooltip: 'Bildirimlerim',
+            onPressed: () => context.push('/notifications'),
+          ),
+          IconButton(
+            icon: const Icon(Icons.account_circle_outlined),
+            tooltip: 'Hesabım',
+            onPressed: () => context.push('/account'),
           ),
         ],
       ),

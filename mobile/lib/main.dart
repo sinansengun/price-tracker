@@ -7,9 +7,13 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'api/api_client.dart';
+import 'providers/account_provider.dart';
 import 'providers/auth_provider.dart';
+import 'providers/notifications_provider.dart';
 import 'providers/products_provider.dart';
+import 'screens/account_screen.dart';
 import 'screens/login_screen.dart';
+import 'screens/notifications_screen.dart';
 import 'screens/product_detail_screen.dart';
 import 'screens/products_screen.dart';
 import 'screens/register_screen.dart';
@@ -63,6 +67,8 @@ void main() async {
       providers: [
         ChangeNotifierProvider(create: (_) => AuthProvider()),
         ChangeNotifierProvider(create: (_) => ProductsProvider()),
+        ChangeNotifierProvider(create: (_) => AccountProvider()),
+        ChangeNotifierProvider(create: (_) => NotificationsProvider()),
       ],
       child: const PriceTrackerApp(),
     ),
@@ -134,6 +140,8 @@ class _PriceTrackerAppState extends State<PriceTrackerApp>
         GoRoute(path: '/login', builder: (_, __) => const LoginScreen()),
         GoRoute(path: '/register', builder: (_, __) => const RegisterScreen()),
         GoRoute(path: '/products', builder: (_, __) => ProductsScreen(key: addProductKey)),
+        GoRoute(path: '/account', builder: (_, __) => const AccountScreen()),
+        GoRoute(path: '/notifications', builder: (_, __) => const NotificationsScreen()),
         GoRoute(
           path: '/products/:id',
           builder: (_, state) => ProductDetailScreen(
