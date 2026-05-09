@@ -24,6 +24,7 @@ export const login = (email, password) => http.post('/auth/login', { email, pass
 export const register = (email, password) => http.post('/auth/register', { email, password });
 export const getProducts = () => http.get('/products');
 export const getProduct = (id) => http.get(`/products/${id}`);
+export const getProductScrapeErrors = (id, limit = 10) => http.get(`/products/${id}/scrape-errors`, { params: { limit } });
 export const createProduct = (url, targetPrice) => http.post('/products', { url, targetPrice: targetPrice ?? null });
 export const checkProduct = (id) => http.post(`/products/${id}/check`);
 export const deleteProduct = (id) => http.delete(`/products/${id}`);

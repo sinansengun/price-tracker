@@ -14,6 +14,8 @@ import 'providers/account_provider.dart';
 import 'providers/auth_provider.dart';
 import 'providers/notifications_provider.dart';
 import 'providers/products_provider.dart';
+import 'screens/account_password_screen.dart';
+import 'screens/account_profile_screen.dart';
 import 'screens/account_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/notifications_screen.dart';
@@ -158,6 +160,14 @@ class _PriceTrackerAppState extends State<PriceTrackerApp>
         GoRoute(path: '/register', builder: (context, state) => const RegisterScreen()),
         GoRoute(path: '/products', builder: (context, state) => ProductsScreen(key: addProductKey)),
         GoRoute(path: '/account', builder: (context, state) => const AccountScreen()),
+        GoRoute(
+          path: '/account/profile',
+          builder: (context, state) => const AccountProfileScreen(),
+        ),
+        GoRoute(
+          path: '/account/password',
+          builder: (context, state) => const AccountPasswordScreen(),
+        ),
         GoRoute(path: '/notifications', builder: (context, state) => const NotificationsScreen()),
         GoRoute(
           path: '/products/:id',

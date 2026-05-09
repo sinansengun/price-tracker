@@ -74,3 +74,46 @@ curl -s -i -X POST "http://localhost:5254/api/products/${FIRST_ID}/test-notifica
 ## Notes
 - Some debug helpers were added for diagnosis; remove before production hardening.
 - Continue from APNs/Firebase iOS chain checks first; backend auth path is already validated.
+
+---
+
+# Scrape Errors Checkpoint (9 Mayıs 2026)
+
+## Current Status
+- Sentry tabanlı ürün bazlı scrape hata görünümü backend + web + mobile tarafında eklendi.
+- `GET /api/products/{id}/scrape-errors` endpoint'i auth ile çalışıyor.
+- `userProductId=31` için canlı çağrıda response şu an `[]` dönüyor.
+- Aynı ürün detayı API sonucunda:
+  - `userProductId=31`
+  - `productId=31`
+  - `lastCheckedAt=null`
+  - `currentPrice=null`
+  - `historyCount=0`
+
+## What Was Updated
+- Sentry event tagleri hem snake_case hem camelCase olacak şekilde genişletildi:
+  - `product_id`
+  - `productId`
+- Sentry query tarafına fallback arama stratejisi eklendi:
+  - `feature:scrape product_id:{id}`
+  - `feature:scrape productId:{id}`
+  - `product_id:{id}`
+  - `productId:{id}`
+- Query tarafına `statsPeriod=30d` eklendi.
+- Mobile ürün detayında "Son Scrape Hataları" kartı her zaman görünür yapıldı; boş durumda açıklayıcı metin gösteriliyor.
+
+## Commits
+- `85ee8d0` - Add product-scoped scrape error logging with Sentry
+- `f986a96` - Improve Sentry product tag matching and mobile error visibility
+
+## Most Likely Remaining Causes for Empty Array
+1. Sentry'de görülen eventler farklı project/environment altında olabilir.
+2. Eventlerde beklenen tag adı farklı olabilir (custom pipeline veya farklı SDK kaynağı).
+3. İlgili ürün için son 30 gün içinde query ile eşleşen event yoktur.
+4. Endpoint çağrısı doğru user product üzerinden geliyor ama scrape hiç çalışmamış olabilir (price/history null işareti).
+
+## First Steps for Next Session
+1. Sentry UI'da aynı project + environment filtreleriyle `product_id:31` ve `productId:31` sorgularını ayrı ayrı doğrula.
+2. Ürün 31 için manuel check tetikle, ardından 10-20 saniye içinde endpoint'i tekrar sorgula.
+3. Gerekirse backend'e geçici debug log ekleyip Sentry API response status/body özetini logla.
+4. Sentry token scope'larını tekrar doğrula (`project:read`, tercihen `event:read`).
