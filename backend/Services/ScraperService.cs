@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using PriceTracker.Services.Scrapers;
+using Sentry;
 
 namespace PriceTracker.Services;
 
@@ -16,21 +17,41 @@ public class ScraperService(
     IHttpClientFactory httpClientFactory,
     PlaywrightService playwright)
 {
-    public async Task<ScrapeResult?> ScrapeAsync(string url)
+    public async Task<ScrapeResult?> ScrapeAsync(string url, int? productId = null, string? checkRunId = null)
     {
+        ISiteScraper? scraper = null;
         try
         {
-            var scraper = scrapers.FirstOrDefault(s => s.CanHandle(url));
+            scraper = scrapers.FirstOrDefault(s => s.CanHandle(url));
             if (scraper == null)
             {
                 logger.LogWarning("Desteklenmeyen URL: {Url}", url);
+                CaptureFailureEvent(
+                    reason: "unsupported_url",
+                    message: "Scraper could not be selected for URL.",
+                    url: url,
+                    productId: productId,
+                    checkRunId: checkRunId,
+                    scraperName: null,
+                    level: SentryLevel.Warning,
+                    exception: null);
                 return null;
             }
+
             return await scraper.ScrapeAsync(url);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error scraping {Url}", url);
+            CaptureFailureEvent(
+                reason: MapReason(ex),
+                message: "Unhandled exception during scraping.",
+                url: url,
+                productId: productId,
+                checkRunId: checkRunId,
+                scraperName: scraper?.GetType().Name,
+                level: SentryLevel.Error,
+                exception: ex);
             return null;
         }
     }
@@ -99,5 +120,66 @@ public class ScraperService(
         }
 
         return null;
+    }
+
+    private static string MapReason(Exception ex)
+    {
+        return ex switch
+        {
+            TaskCanceledException => "timeout",
+            HttpRequestException => "network_error",
+            _ => "scraper_exception"
+        };
+    }
+
+    private static void CaptureFailureEvent(
+        string reason,
+        string message,
+        string url,
+        int? productId,
+        string? checkRunId,
+        string? scraperName,
+        SentryLevel level,
+        Exception? exception)
+    {
+        if (!SentrySdk.IsEnabled)
+        {
+            return;
+        }
+
+        using (SentrySdk.PushScope())
+        {
+            SentrySdk.ConfigureScope(scope =>
+            {
+                scope.Level = level;
+                scope.SetTag("feature", "scrape");
+                scope.SetTag("reason", reason);
+                scope.SetTag("logger", "scrape");
+                scope.SetTag("url", url);
+                if (productId.HasValue)
+                {
+                    scope.SetTag("product_id", productId.Value.ToString());
+                }
+
+                if (!string.IsNullOrWhiteSpace(checkRunId))
+                {
+                    scope.SetTag("check_run_id", checkRunId);
+                }
+
+                if (!string.IsNullOrWhiteSpace(scraperName))
+                {
+                    scope.SetTag("scraper_name", scraperName);
+                }
+            });
+
+            if (exception != null)
+            {
+                SentrySdk.CaptureException(exception);
+            }
+            else
+            {
+                SentrySdk.CaptureMessage(message, level);
+            }
+        }
     }
 }

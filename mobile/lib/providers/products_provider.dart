@@ -128,6 +128,21 @@ class ProductsProvider extends ChangeNotifier {
     } catch (_) {}
   }
 
+  Future<List<ScrapeErrorLog>> fetchScrapeErrors(int id, {int limit = 10}) async {
+    try {
+      final safeLimit = limit.clamp(1, 25);
+      final res = await ApiClient.get('/products/$id/scrape-errors?limit=$safeLimit');
+      if (res.statusCode == 200) {
+        final list = jsonDecode(res.body) as List<dynamic>;
+        return list
+            .map((e) => ScrapeErrorLog.fromJson(e as Map<String, dynamic>))
+            .toList();
+      }
+    } catch (_) {}
+
+    return const [];
+  }
+
   // ── Label methods ──────────────────────────────────────────────
 
   Future<Label?> createLabel(String name, String color) async {

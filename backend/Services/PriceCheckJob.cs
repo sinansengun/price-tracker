@@ -5,6 +5,7 @@ using Hangfire.Server;
 using Microsoft.EntityFrameworkCore;
 using PriceTracker.Data;
 using PriceTracker.Models;
+using Sentry;
 
 namespace PriceTracker.Services;
 
@@ -43,10 +44,24 @@ public class PriceCheckJob(
             return;
         }
 
-        var result = await scraper.ScrapeAsync(product.Url);
+        var checkRunId = Guid.NewGuid().ToString("N");
+        using var productLogScope = logger.BeginScope(new Dictionary<string, object?>
+        {
+            ["product_id"] = productId,
+            ["check_run_id"] = checkRunId,
+            ["product_url"] = product.Url
+        });
+
+        var result = await scraper.ScrapeAsync(product.Url, productId, checkRunId);
         if (result == null)
         {
             context?.WriteLine($"Scrape failed: productId={productId} url={product.Url}");
+            CaptureScrapeFailure(
+                productId,
+                product.Url,
+                checkRunId,
+                "no_result",
+                "Scrape returned no result.");
             return;
         }
 
@@ -300,5 +315,34 @@ public class PriceCheckJob(
         }
 
         return ((oldPrice - newPrice) / oldPrice) * 100m;
+    }
+
+    private static void CaptureScrapeFailure(
+        int productId,
+        string productUrl,
+        string checkRunId,
+        string reason,
+        string message)
+    {
+        if (!SentrySdk.IsEnabled)
+        {
+            return;
+        }
+
+        using (SentrySdk.PushScope())
+        {
+            SentrySdk.ConfigureScope(scope =>
+            {
+                scope.Level = SentryLevel.Warning;
+                scope.SetTag("feature", "scrape");
+                scope.SetTag("product_id", productId.ToString());
+                scope.SetTag("product_url", productUrl);
+                scope.SetTag("check_run_id", checkRunId);
+                scope.SetTag("reason", reason);
+                scope.SetTag("logger", "scrape");
+            });
+
+            SentrySdk.CaptureMessage(message, SentryLevel.Warning);
+        }
     }
 }

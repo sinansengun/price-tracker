@@ -18,6 +18,7 @@ class ProductDetailScreen extends StatefulWidget {
 
 class _ProductDetailScreenState extends State<ProductDetailScreen> {
   UserProduct? _up;
+  List<ScrapeErrorLog> _scrapeErrors = const [];
   bool _loading = true;
   bool _checkLoading = false;
   bool _viewTracked = false;
@@ -41,9 +42,9 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
 
   Future<void> _load() async {
     setState(() => _loading = true);
-    _up = await context
-        .read<ProductsProvider>()
-        .fetchById(widget.userProductId);
+    final provider = context.read<ProductsProvider>();
+    _up = await provider.fetchById(widget.userProductId);
+    _scrapeErrors = await provider.fetchScrapeErrors(widget.userProductId, limit: 10);
 
     if (_up != null && !_viewTracked) {
       _viewTracked = true;
@@ -370,6 +371,85 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                     ? 'Hedef: ${fmtPrice(up.targetPrice!)} ₺'
                     : 'Hedef Fiyat Belirle',
                 style: const TextStyle(fontSize: 12),
+              ),
+            ),
+          ),
+        ],
+
+        if (_scrapeErrors.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.report_problem_outlined, size: 18),
+                      const SizedBox(width: 6),
+                      Text('Son Scrape Hataları',
+                          style: Theme.of(context).textTheme.titleSmall),
+                      const Spacer(),
+                      Text(
+                        'Son 10',
+                        style: TextStyle(
+                            fontSize: 11, color: cs.onSurface.withValues(alpha: 0.55)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  ..._scrapeErrors.map((e) => Container(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFF1F2),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: const Color(0xFFFECACA)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    e.reason,
+                                    style: const TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w700,
+                                        color: Color(0xFFB91C1C)),
+                                  ),
+                                ),
+                                Text(
+                                  DateFormat('dd.MM HH:mm').format(e.attemptedAt),
+                                  style: const TextStyle(
+                                      fontSize: 11, color: Color(0xFFEF4444)),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              e.message,
+                              style: const TextStyle(
+                                  fontSize: 12, color: Color(0xFFB91C1C)),
+                            ),
+                            if (e.scraper != null || e.checkRunId != null) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                [
+                                  if (e.scraper != null) 'scraper: ${e.scraper}',
+                                  if (e.checkRunId != null)
+                                    'run: ${e.checkRunId!.substring(0, e.checkRunId!.length < 8 ? e.checkRunId!.length : 8)}',
+                                ].join(' • '),
+                                style: const TextStyle(
+                                    fontSize: 11, color: Color(0xFFEF4444)),
+                              ),
+                            ],
+                          ],
+                        ),
+                      )),
+                ],
               ),
             ),
           ),

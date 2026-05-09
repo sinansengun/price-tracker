@@ -16,8 +16,25 @@ using PriceTracker.Data;
 using PriceTracker.Models;
 using PriceTracker.Services;
 using PriceTracker.Services.Scrapers;
+using Sentry;
 
 var builder = WebApplication.CreateBuilder(args);
+
+var sentryDsn = builder.Configuration["Sentry:Dsn"]
+    ?? Environment.GetEnvironmentVariable("SENTRY_DSN");
+if (builder.Environment.IsProduction() && !string.IsNullOrWhiteSpace(sentryDsn))
+{
+    builder.WebHost.UseSentry(options =>
+    {
+        options.Dsn = sentryDsn;
+        options.Environment = builder.Environment.EnvironmentName;
+        options.SendDefaultPii = false;
+        options.MinimumBreadcrumbLevel = LogLevel.Warning;
+        options.MinimumEventLevel = LogLevel.Warning;
+        options.TracesSampleRate = 0;
+        options.ProfilesSampleRate = 0;
+    });
+}
 
 builder.Logging.AddProvider(new HangfireConsoleLoggerProvider());
 
@@ -109,6 +126,11 @@ builder.Services.AddScoped<ISiteScraper, TrabzonsporScraper>();
 builder.Services.AddScoped<ScraperService>();
 builder.Services.AddSingleton<FirebaseRemoteConfigService>();
 builder.Services.AddScoped<PriceCheckJob>();
+builder.Services.AddMemoryCache();
+builder.Services.AddHttpClient<IScrapeErrorLogQueryService, SentryScrapeErrorLogQueryService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(4);
+});
 
 builder.Services.AddCors(opts =>
     opts.AddDefaultPolicy(p =>

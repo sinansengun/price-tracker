@@ -204,6 +204,27 @@ public class ProductsController(
         return Ok(history);
     }
 
+    // GET api/products/{id}/scrape-errors
+    [HttpGet("{id:int}/scrape-errors")]
+    public async Task<IActionResult> GetScrapeErrors(
+        int id,
+        [FromQuery] int limit = 10,
+        [FromServices] IScrapeErrorLogQueryService scrapeErrorLogQueryService = null!,
+        CancellationToken cancellationToken = default)
+    {
+        var up = await db.UserProducts
+            .AsNoTracking()
+            .FirstOrDefaultAsync(up => up.Id == id && up.UserId == UserId, cancellationToken);
+        if (up == null) return NotFound();
+
+        var items = await scrapeErrorLogQueryService.GetRecentProductErrorsAsync(
+            up.ProductId,
+            limit,
+            cancellationToken);
+
+        return Ok(items);
+    }
+
     // POST api/products/{id}/labels/{labelId}
     [HttpPost("{id:int}/labels/{labelId:int}")]
     public async Task<IActionResult> AddLabel(int id, int labelId)
