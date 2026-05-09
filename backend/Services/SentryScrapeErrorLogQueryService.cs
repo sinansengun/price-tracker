@@ -53,21 +53,46 @@ public sealed class SentryScrapeErrorLogQueryService(
 
         try
         {
-            using var request = BuildRequest(settings.BaseUrl, orgSlug, projectSlug, apiToken, productId, safeLimit);
-            using var response = await httpClient.SendAsync(request, cancellationToken);
-            if (!response.IsSuccessStatusCode)
+            var queryCandidates = BuildQueryCandidates(productId);
+            var merged = new List<ScrapeErrorLogItem>();
+
+            foreach (var query in queryCandidates)
             {
-                logger.LogWarning(
-                    "Sentry events query failed for productId={ProductId} status={StatusCode}",
-                    productId,
-                    (int)response.StatusCode);
-                return [];
+                using var request = BuildRequest(settings.BaseUrl, orgSlug, projectSlug, apiToken, query, safeLimit);
+                using var response = await httpClient.SendAsync(request, cancellationToken);
+                if (!response.IsSuccessStatusCode)
+                {
+                    logger.LogWarning(
+                        "Sentry events query failed for productId={ProductId} status={StatusCode} query={Query}",
+                        productId,
+                        (int)response.StatusCode,
+                        query);
+                    continue;
+                }
+
+                var payload = await response.Content.ReadAsStringAsync(cancellationToken);
+                var parsed = ParseEvents(payload, safeLimit);
+                if (parsed.Count == 0)
+                {
+                    continue;
+                }
+
+                merged.AddRange(parsed);
+                if (merged.Count >= safeLimit)
+                {
+                    break;
+                }
             }
 
-            var payload = await response.Content.ReadAsStringAsync(cancellationToken);
-            var parsed = ParseEvents(payload, safeLimit);
-            cache.Set(cacheKey, parsed, TimeSpan.FromSeconds(CacheSeconds));
-            return parsed;
+            var distinct = merged
+                .OrderByDescending(x => x.AttemptedAt)
+                .GroupBy(x => string.IsNullOrWhiteSpace(x.EventId) ? $"{x.AttemptedAt:o}:{x.Message}" : x.EventId)
+                .Select(g => g.First())
+                .Take(safeLimit)
+                .ToList();
+
+            cache.Set(cacheKey, distinct, TimeSpan.FromSeconds(CacheSeconds));
+            return distinct;
         }
         catch (OperationCanceledException)
         {
@@ -85,17 +110,28 @@ public sealed class SentryScrapeErrorLogQueryService(
         string orgSlug,
         string projectSlug,
         string apiToken,
-        int productId,
+        string queryText,
         int limit)
     {
         baseUrl = baseUrl.TrimEnd('/');
-        var queryText = $"feature:scrape product_id:{productId}";
         var query = Uri.EscapeDataString(queryText);
-        var requestUrl = $"{baseUrl}/projects/{Uri.EscapeDataString(orgSlug)}/{Uri.EscapeDataString(projectSlug)}/events/?query={query}&per_page={limit}";
+        var requestUrl = $"{baseUrl}/projects/{Uri.EscapeDataString(orgSlug)}/{Uri.EscapeDataString(projectSlug)}/events/?query={query}&per_page={limit}&statsPeriod=30d";
 
         var request = new HttpRequestMessage(HttpMethod.Get, requestUrl);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiToken);
         return request;
+    }
+
+    private static IReadOnlyList<string> BuildQueryCandidates(int productId)
+    {
+        var id = productId.ToString(CultureInfo.InvariantCulture);
+        return
+        [
+            $"feature:scrape product_id:{id}",
+            $"feature:scrape productId:{id}",
+            $"product_id:{id}",
+            $"productId:{id}"
+        ];
     }
 
     private static IReadOnlyList<ScrapeErrorLogItem> ParseEvents(string payload, int limit)

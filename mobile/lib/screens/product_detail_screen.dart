@@ -19,6 +19,7 @@ class ProductDetailScreen extends StatefulWidget {
 class _ProductDetailScreenState extends State<ProductDetailScreen> {
   UserProduct? _up;
   List<ScrapeErrorLog> _scrapeErrors = const [];
+  bool _scrapeErrorsLoaded = false;
   bool _loading = true;
   bool _checkLoading = false;
   bool _viewTracked = false;
@@ -45,6 +46,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     final provider = context.read<ProductsProvider>();
     _up = await provider.fetchById(widget.userProductId);
     _scrapeErrors = await provider.fetchScrapeErrors(widget.userProductId, limit: 10);
+    _scrapeErrorsLoaded = true;
 
     if (_up != null && !_viewTracked) {
       _viewTracked = true;
@@ -376,29 +378,39 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
           ),
         ],
 
-        if (_scrapeErrors.isNotEmpty) ...[
-          const SizedBox(height: 12),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      const Icon(Icons.report_problem_outlined, size: 18),
-                      const SizedBox(width: 6),
-                      Text('Son Scrape Hataları',
-                          style: Theme.of(context).textTheme.titleSmall),
-                      const Spacer(),
-                      Text(
-                        'Son 10',
-                        style: TextStyle(
-                            fontSize: 11, color: cs.onSurface.withValues(alpha: 0.55)),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
+        const SizedBox(height: 12),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.report_problem_outlined, size: 18),
+                    const SizedBox(width: 6),
+                    Text('Son Scrape Hataları',
+                        style: Theme.of(context).textTheme.titleSmall),
+                    const Spacer(),
+                    Text(
+                      'Son 10',
+                      style: TextStyle(
+                          fontSize: 11, color: cs.onSurface.withValues(alpha: 0.55)),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                if (!_scrapeErrorsLoaded)
+                  const Text(
+                    'Scrape logları yükleniyor...',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  )
+                else if (_scrapeErrors.isEmpty)
+                  const Text(
+                    'Bu ürün için son dönemde scrape hatası yok ya da log verisi alınamadı.',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  )
+                else
                   ..._scrapeErrors.map((e) => Container(
                         margin: const EdgeInsets.only(bottom: 8),
                         padding: const EdgeInsets.all(10),
@@ -449,11 +461,10 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                           ],
                         ),
                       )),
-                ],
-              ),
+              ],
             ),
           ),
-        ],
+        ),
       ],
     );
   }

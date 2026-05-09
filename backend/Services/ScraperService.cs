@@ -159,6 +159,7 @@ public class ScraperService(
                 if (productId.HasValue)
                 {
                     scope.SetTag("product_id", productId.Value.ToString());
+                    scope.SetTag("productId", productId.Value.ToString());
                 }
 
                 if (!string.IsNullOrWhiteSpace(checkRunId))

@@ -336,6 +336,7 @@ public class PriceCheckJob(
                 scope.Level = SentryLevel.Warning;
                 scope.SetTag("feature", "scrape");
                 scope.SetTag("product_id", productId.ToString());
+                scope.SetTag("productId", productId.ToString());
                 scope.SetTag("product_url", productUrl);
                 scope.SetTag("check_run_id", checkRunId);
                 scope.SetTag("reason", reason);
