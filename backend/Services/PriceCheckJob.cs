@@ -1,14 +1,10 @@
 using FirebaseAdmin;
 using FirebaseAdmin.Messaging;
-using Google.Apis.Auth.OAuth2;
 using Hangfire.Console;
 using Hangfire.Server;
 using Microsoft.EntityFrameworkCore;
 using PriceTracker.Data;
 using PriceTracker.Models;
-using System.Net.Http.Headers;
-using System.Text;
-using System.Text.Json;
 
 namespace PriceTracker.Services;
 
@@ -18,8 +14,6 @@ public class PriceCheckJob(
     FirebaseRemoteConfigService remoteConfigService,
     ILogger<PriceCheckJob> logger)
 {
-    private static readonly HttpClient FcmHttp = new();
-
     public async Task CheckAllProductsAsync(PerformContext? context = null)
     {
         using var contextScope = HangfireConsoleContextAccessor.Push(context);
@@ -56,10 +50,17 @@ public class PriceCheckJob(
             return;
         }
 
+        var checkedAt = DateTime.UtcNow;
+        var lastWeekStart = checkedAt.AddDays(-7);
         var previousPrice = product.CurrentPrice;
+        var lastWeekMinPrice = await db.PriceHistories
+            .Where(h => h.ProductId == product.Id && h.CheckedAt >= lastWeekStart)
+            .Select(h => (decimal?)h.Price)
+            .MinAsync();
+
         product.CurrentPrice = result.Price;
         product.InitialPrice ??= result.Price;
-        product.LastCheckedAt = DateTime.UtcNow;
+        product.LastCheckedAt = checkedAt;
 
         if (string.IsNullOrEmpty(product.Name) || product.Name == "Bilinmeyen Ürün")
             product.Name = result.Name;
@@ -74,7 +75,7 @@ public class PriceCheckJob(
         {
             ProductId = product.Id,
             Price = result.Price,
-            CheckedAt = DateTime.UtcNow
+            CheckedAt = checkedAt
         });
 
         await db.SaveChangesAsync();
@@ -84,33 +85,47 @@ public class PriceCheckJob(
         if (previousPrice.HasValue && result.Price < previousPrice.Value)
         {
             var minDropPercent = await remoteConfigService.GetMinPriceDropPercentAsync();
-            var dropPercent = previousPrice.Value <= 0
+            var referencePrice = lastWeekMinPrice ?? previousPrice.Value;
+
+            if (result.Price >= referencePrice)
+            {
+                logger.LogInformation(
+                    "Price dropped but no notification for '{Name}': current={CurrentPrice}, last7dMin={LastWeekMinPrice}",
+                    product.Name,
+                    result.Price,
+                    referencePrice);
+                context?.WriteLine(
+                    $"Price dropped but no notification (not below last 7d min): current={result.Price:F2}, last7dMin={referencePrice:F2}");
+                return;
+            }
+
+            var dropPercent = referencePrice <= 0
                 ? 0
-                : ((previousPrice.Value - result.Price) / previousPrice.Value) * 100;
+                : ((referencePrice - result.Price) / referencePrice) * 100;
 
             if (dropPercent < minDropPercent)
             {
                 logger.LogInformation(
-                    "Price drop below threshold for '{Name}': drop={DropPercent:F2}%, threshold={ThresholdPercent:F2}%",
+                    "Price drop below threshold for '{Name}' (last 7d min): drop={DropPercent:F2}%, threshold={ThresholdPercent:F2}%",
                     product.Name,
                     dropPercent,
                     minDropPercent);
                 context?.WriteLine(
-                    $"Price dropped but no notification (below threshold): drop={dropPercent:F2}%, threshold={minDropPercent:F2}%");
+                    $"Price dropped but no notification (below threshold, last 7d min): drop={dropPercent:F2}%, threshold={minDropPercent:F2}%");
                 return;
             }
 
             logger.LogInformation(
-                "Price dropped for '{Name}': {OldPrice} → {NewPrice} (drop={DropPercent:F2}%, threshold={ThresholdPercent:F2}%)",
+                "Price dropped for '{Name}' (last 7d min): {OldPrice} → {NewPrice} (drop={DropPercent:F2}%, threshold={ThresholdPercent:F2}%)",
                 product.Name,
-                previousPrice.Value,
+                referencePrice,
                 result.Price,
                 dropPercent,
                 minDropPercent);
             context?.WriteLine(
-                $"Price dropped for '{product.Name}': {previousPrice.Value:F2} -> {result.Price:F2} (drop={dropPercent:F2}%, threshold={minDropPercent:F2}%)");
+                $"Price dropped for '{product.Name}' (last 7d min): {referencePrice:F2} -> {result.Price:F2} (drop={dropPercent:F2}%, threshold={minDropPercent:F2}%)");
 
-            await SendPriceDropNotificationsAsync(product, previousPrice.Value, result.Price, context);
+            await SendPriceDropNotificationsAsync(product, referencePrice, result.Price, context);
         }
         else if (previousPrice.HasValue && previousPrice.Value != result.Price)
         {
@@ -138,8 +153,7 @@ public class PriceCheckJob(
 
         var results = new List<object>();
         var historyEntries = new List<NotificationHistory>();
-        var title = "Fiyat Düştü! 🎉";
-        var body = $"{product.Name}: {oldPrice:F2}₺ → {newPrice:F2}₺";
+        var (title, body) = BuildPriceDropNotificationContent(product.Name, oldPrice, newPrice);
         foreach (var up in userProducts)
         {
             try
@@ -152,11 +166,7 @@ public class PriceCheckJob(
                         Title = title,
                         Body = body
                     },
-                    Data = new Dictionary<string, string>
-                    {
-                        ["productId"] = product.Id.ToString(),
-                        ["userProductId"] = up.Id.ToString()
-                    }
+                    Data = BuildNotificationData(product.Id, up.Id)
                 };
                 var response = await FirebaseMessaging.DefaultInstance.SendAsync(message);
                 results.Add(new { userId = up.UserId, status = "sent", response });
@@ -165,34 +175,8 @@ public class PriceCheckJob(
             catch (Exception ex)
             {
                 logger.LogWarning(ex, "FCM bildirimi gönderilemedi: userId={UserId}", up.UserId);
-                // FirebaseAdmin SDK bazı ortamlarda auth header'ı düşürüp UNAUTHENTICATED dönebiliyor.
-                // Bu durumda FCM HTTP v1'e direkt fallback deniyoruz.
-                if (ex is FirebaseMessagingException fex &&
-                    fex.Message.Contains("missing required authentication credential", StringComparison.OrdinalIgnoreCase))
-                {
-                    var fallback = await SendViaHttpV1Async(up.User.FcmToken!, product, oldPrice, newPrice, up.Id);
-                    results.Add(new
-                    {
-                        userId = up.UserId,
-                        status = fallback.success ? "sent-fallback" : "failed",
-                        response = fallback.response,
-                        error = fallback.success ? null : fallback.error
-                    });
-                    historyEntries.Add(BuildNotificationHistory(
-                        up,
-                        product.Id,
-                        oldPrice,
-                        newPrice,
-                        title,
-                        body,
-                        fallback.success,
-                        fallback.success ? null : (fallback.error ?? fallback.response)));
-                }
-                else
-                {
-                    results.Add(new { userId = up.UserId, status = "failed", error = ex.Message });
-                    historyEntries.Add(BuildNotificationHistory(up, product.Id, oldPrice, newPrice, title, body, false, ex.Message));
-                }
+                results.Add(new { userId = up.UserId, status = "failed", error = ex.Message });
+                historyEntries.Add(BuildNotificationHistory(up, product.Id, oldPrice, newPrice, title, body, false, ex.Message));
             }
         }
 
@@ -216,8 +200,7 @@ public class PriceCheckJob(
 
         context?.WriteLine($"Sending notifications: productId={product.Id}, recipients={userProducts.Count}");
         var historyEntries = new List<NotificationHistory>();
-        var title = "Fiyat Düştü! 🎉";
-        var body = $"{product.Name}: {oldPrice:F2}₺ → {newPrice:F2}₺";
+        var (title, body) = BuildPriceDropNotificationContent(product.Name, oldPrice, newPrice);
 
         foreach (var up in userProducts)
         {
@@ -231,11 +214,7 @@ public class PriceCheckJob(
                         Title = title,
                         Body = body
                     },
-                    Data = new Dictionary<string, string>
-                    {
-                        ["productId"] = product.Id.ToString(),
-                        ["userProductId"] = up.Id.ToString()
-                    }
+                    Data = BuildNotificationData(product.Id, up.Id)
                 };
                 await FirebaseMessaging.DefaultInstance.SendAsync(message);
                 context?.WriteLine($"Notification sent: userId={up.UserId}");
@@ -245,34 +224,7 @@ public class PriceCheckJob(
             {
                 logger.LogWarning(ex, "FCM bildirimi gönderilemedi: userId={UserId}", up.UserId);
                 context?.WriteLine($"Notification failed: userId={up.UserId}, error={ex.Message}");
-                if (ex is FirebaseMessagingException fex &&
-                    fex.Message.Contains("missing required authentication credential", StringComparison.OrdinalIgnoreCase))
-                {
-                    var fallback = await SendViaHttpV1Async(up.User.FcmToken!, product, oldPrice, newPrice, up.Id);
-                    if (!fallback.success)
-                    {
-                        logger.LogWarning("FCM fallback da başarısız oldu: userId={UserId}, error={Error}", up.UserId, fallback.error);
-                        context?.WriteLine($"Fallback notification failed: userId={up.UserId}, error={fallback.error}");
-                        historyEntries.Add(BuildNotificationHistory(
-                            up,
-                            product.Id,
-                            oldPrice,
-                            newPrice,
-                            title,
-                            body,
-                            false,
-                            fallback.error ?? fallback.response ?? ex.Message));
-                    }
-                    else
-                    {
-                        context?.WriteLine($"Fallback notification sent: userId={up.UserId}");
-                        historyEntries.Add(BuildNotificationHistory(up, product.Id, oldPrice, newPrice, title, body, true, null));
-                    }
-                }
-                else
-                {
-                    historyEntries.Add(BuildNotificationHistory(up, product.Id, oldPrice, newPrice, title, body, false, ex.Message));
-                }
+                historyEntries.Add(BuildNotificationHistory(up, product.Id, oldPrice, newPrice, title, body, false, ex.Message));
             }
         }
 
@@ -308,59 +260,45 @@ public class PriceCheckJob(
         };
     }
 
-    private async Task<(bool success, string? response, string? error)> SendViaHttpV1Async(
-        string fcmToken,
-        Product product,
-        decimal oldPrice,
-        decimal newPrice,
-        int userProductId)
+    private static Dictionary<string, string> BuildNotificationData(int productId, int userProductId)
     {
-        try
+        return new Dictionary<string, string>
         {
-            var app = FirebaseApp.DefaultInstance;
-            if (app == null) return (false, null, "FirebaseApp not initialized");
+            ["productId"] = productId.ToString(),
+            ["userProductId"] = userProductId.ToString(),
+            ["deepLink"] = $"pricetracker://product/{userProductId}",
+            ["action"] = "PRICE_ALERT"
+        };
+    }
 
-            var projectId = app.Options.ProjectId;
-            if (string.IsNullOrWhiteSpace(projectId)) return (false, null, "Firebase ProjectId is missing");
+    private static (string title, string body) BuildPriceDropNotificationContent(string? productName, decimal oldPrice, decimal newPrice)
+    {
+        var shortName = TruncateProductName(productName, 30);
+        var dropPercent = CalculateDropPercent(oldPrice, newPrice);
+        var dropPercentText = dropPercent.ToString("0.#");
 
-            var tokenProvider = app.Options.Credential.UnderlyingCredential as ITokenAccess;
-            var accessToken = tokenProvider == null ? null : await tokenProvider.GetAccessTokenForRequestAsync();
-            if (string.IsNullOrWhiteSpace(accessToken)) return (false, null, "Could not acquire access token");
+        return ("Fiyat Düştü! 🎉", $"{shortName} için en ucuz fiyat geçen haftaya göre %{dropPercentText} düştü. Hemen Price Tracker'da gözat.");
+    }
 
-            var payload = new
-            {
-                message = new
-                {
-                    token = fcmToken,
-                    notification = new
-                    {
-                        title = "Fiyat Düştü! 🎉",
-                        body = $"{product.Name}: {oldPrice:F2}₺ → {newPrice:F2}₺"
-                    },
-                    data = new Dictionary<string, string>
-                    {
-                        ["productId"] = product.Id.ToString(),
-                        ["userProductId"] = userProductId.ToString()
-                    }
-                }
-            };
+    private static string TruncateProductName(string? productName, int maxLength)
+    {
+        var name = string.IsNullOrWhiteSpace(productName) ? "Bilinmeyen Ürün" : productName.Trim();
 
-            var request = new HttpRequestMessage(HttpMethod.Post,
-                $"https://fcm.googleapis.com/v1/projects/{projectId}/messages:send");
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-            request.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
-
-            var response = await FcmHttp.SendAsync(request);
-            var body = await response.Content.ReadAsStringAsync();
-
-            if (response.IsSuccessStatusCode)
-                return (true, body, null);
-
-            return (false, body, $"HTTP {(int)response.StatusCode}");
-        }
-        catch (Exception ex)
+        if (maxLength <= 3 || name.Length <= maxLength)
         {
-            return (false, null, ex.Message);
+            return name;
         }
+
+        return $"{name[..(maxLength - 3)]}...";
+    }
+
+    private static decimal CalculateDropPercent(decimal oldPrice, decimal newPrice)
+    {
+        if (oldPrice <= 0 || newPrice >= oldPrice)
+        {
+            return 0;
+        }
+
+        return ((oldPrice - newPrice) / oldPrice) * 100m;
     }
 }

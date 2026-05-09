@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
@@ -39,6 +42,9 @@ const AndroidNotificationChannel _androidChannel = AndroidNotificationChannel(
 
 final FlutterLocalNotificationsPlugin _localNotifications =
     FlutterLocalNotificationsPlugin();
+final StreamController<String> _localNotificationTapStream =
+  StreamController<String>.broadcast();
+String? _queuedLocalNotificationPayload;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -56,7 +62,16 @@ void main() async {
     android: androidInit,
     iOS: iosInit,
   );
-  await _localNotifications.initialize(initSettings);
+  await _localNotifications.initialize(
+    initSettings,
+    onDidReceiveNotificationResponse: (response) {
+      final payload = response.payload;
+      if (payload == null || payload.isEmpty) return;
+
+      _queuedLocalNotificationPayload = payload;
+      _localNotificationTapStream.add(payload);
+    },
+  );
   await _localNotifications
       .resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin>()
@@ -85,21 +100,23 @@ class PriceTrackerApp extends StatefulWidget {
 class _PriceTrackerAppState extends State<PriceTrackerApp>
     with WidgetsBindingObserver {
   late final GoRouter _router;
+  StreamSubscription<String>? _localNotificationTapSubscription;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    FirebaseMessaging.onMessageOpenedApp.listen((_) {
-      AnalyticsService.instance
-          .logPushOpenedFromBackground(source: 'resume_tap');
+    FirebaseMessaging.onMessageOpenedApp.listen((message) {
+      _handleNotificationData(message.data, source: 'resume_tap');
     });
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final initialMessage = await FirebaseMessaging.instance.getInitialMessage();
       if (initialMessage != null) {
-        await AnalyticsService.instance
-            .logPushOpenedFromBackground(source: 'cold_start_tap');
+        await _handleNotificationData(
+          initialMessage.data,
+          source: 'cold_start_tap',
+        );
       }
     });
 
@@ -137,18 +154,29 @@ class _PriceTrackerAppState extends State<PriceTrackerApp>
       },
       refreshListenable: auth,
       routes: [
-        GoRoute(path: '/login', builder: (_, __) => const LoginScreen()),
-        GoRoute(path: '/register', builder: (_, __) => const RegisterScreen()),
-        GoRoute(path: '/products', builder: (_, __) => ProductsScreen(key: addProductKey)),
-        GoRoute(path: '/account', builder: (_, __) => const AccountScreen()),
-        GoRoute(path: '/notifications', builder: (_, __) => const NotificationsScreen()),
+        GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
+        GoRoute(path: '/register', builder: (context, state) => const RegisterScreen()),
+        GoRoute(path: '/products', builder: (context, state) => ProductsScreen(key: addProductKey)),
+        GoRoute(path: '/account', builder: (context, state) => const AccountScreen()),
+        GoRoute(path: '/notifications', builder: (context, state) => const NotificationsScreen()),
         GoRoute(
           path: '/products/:id',
-          builder: (_, state) => ProductDetailScreen(
+          builder: (context, state) => ProductDetailScreen(
               userProductId: int.parse(state.pathParameters['id']!)),
         ),
       ],
     );
+
+    _localNotificationTapSubscription =
+        _localNotificationTapStream.stream.listen((payload) {
+      _handleLocalNotificationTap(payload);
+    });
+
+    if (_queuedLocalNotificationPayload != null) {
+      final payload = _queuedLocalNotificationPayload!;
+      _queuedLocalNotificationPayload = null;
+      _handleLocalNotificationTap(payload);
+    }
 
     // Cold start: native'de saklanan bekleyen URL'yi çek
     WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -232,8 +260,69 @@ class _PriceTrackerAppState extends State<PriceTrackerApp>
             icon: '@mipmap/ic_launcher',
           ),
         ),
+        payload: jsonEncode(message.data),
       );
     });
+  }
+
+  Future<void> _handleLocalNotificationTap(String payload) async {
+    try {
+      final decoded = jsonDecode(payload);
+      if (decoded is! Map) return;
+
+      final data = decoded.map(
+        (key, value) => MapEntry(key.toString(), value?.toString() ?? ''),
+      );
+      await _handleNotificationData(data, source: 'foreground_local_tap');
+    } catch (_) {
+      // Geçersiz payload durumunda sessizce devam et.
+    }
+  }
+
+  Future<void> _handleNotificationData(
+    Map<String, dynamic> data, {
+    required String source,
+  }) async {
+    final auth = context.read<AuthProvider>();
+    await AnalyticsService.instance.logPushOpenedFromBackground(source: source);
+
+    final userProductId = _extractUserProductId(data);
+    if (userProductId == null) return;
+
+    if (!auth.isAuthenticated) {
+      _pendingNotificationUserProductId = userProductId;
+      return;
+    }
+
+    _openProductDetailFromNotification(userProductId);
+  }
+
+  void _openProductDetailFromNotification(int userProductId) {
+    _router.go('/products/$userProductId');
+  }
+
+  int? _extractUserProductId(Map<String, dynamic> data) {
+    final direct = int.tryParse((data['userProductId'] ?? '').toString());
+    if (direct != null) return direct;
+
+    return _extractUserProductIdFromDeepLink(data['deepLink']?.toString());
+  }
+
+  int? _extractUserProductIdFromDeepLink(String? deepLink) {
+    if (deepLink == null || deepLink.isEmpty) return null;
+
+    final uri = Uri.tryParse(deepLink);
+    if (uri == null || uri.scheme != 'pricetracker') return null;
+
+    if (uri.host == 'product' && uri.pathSegments.isNotEmpty) {
+      return int.tryParse(uri.pathSegments.first);
+    }
+
+    if (uri.pathSegments.length >= 2 && uri.pathSegments.first == 'product') {
+      return int.tryParse(uri.pathSegments[1]);
+    }
+
+    return null;
   }
 
   Future<void> _handleSharedUrl(String url) async {
@@ -265,6 +354,7 @@ class _PriceTrackerAppState extends State<PriceTrackerApp>
   }
 
   String? _pendingSharedUrl;
+  int? _pendingNotificationUserProductId;
 
   // Çift URL işlemeyi engeller: URL scheme ve UserDefaults yolları
   // aynı anda tetiklendiğinde modal iki kez açılıp kapanmasın.
@@ -274,6 +364,7 @@ class _PriceTrackerAppState extends State<PriceTrackerApp>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _localNotificationTapSubscription?.cancel();
     super.dispose();
   }
 
@@ -303,6 +394,12 @@ class _PriceTrackerAppState extends State<PriceTrackerApp>
       final url = _pendingSharedUrl!;
       _pendingSharedUrl = null;
       _handleSharedUrl(url);
+    }
+
+    if (auth.isAuthenticated && _pendingNotificationUserProductId != null) {
+      final userProductId = _pendingNotificationUserProductId!;
+      _pendingNotificationUserProductId = null;
+      _openProductDetailFromNotification(userProductId);
     }
   }
 
