@@ -21,39 +21,6 @@ class PricePoint {
       );
 }
 
-class ScrapeErrorLog {
-  final String eventId;
-  final DateTime attemptedAt;
-  final String level;
-  final String reason;
-  final String message;
-  final String? scraper;
-  final String? checkRunId;
-  final String? issueUrl;
-
-  const ScrapeErrorLog({
-    required this.eventId,
-    required this.attemptedAt,
-    required this.level,
-    required this.reason,
-    required this.message,
-    this.scraper,
-    this.checkRunId,
-    this.issueUrl,
-  });
-
-  factory ScrapeErrorLog.fromJson(Map<String, dynamic> j) => ScrapeErrorLog(
-        eventId: j['eventId'] ?? '',
-        attemptedAt: DateTime.parse(j['attemptedAt']).toLocal(),
-        level: j['level'] ?? 'error',
-        reason: j['reason'] ?? 'unknown',
-        message: j['message'] ?? 'Scrape failed',
-        scraper: j['scraper'],
-        checkRunId: j['checkRunId'],
-        issueUrl: j['issueUrl'],
-      );
-}
-
 class ProductInfo {
   final int id;
   final String name;

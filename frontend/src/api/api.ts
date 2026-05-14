@@ -43,17 +43,6 @@ export interface Label {
   color: string
 }
 
-export interface ScrapeErrorLog {
-  eventId: string
-  attemptedAt: string
-  level: string
-  reason: string
-  message: string
-  scraper?: string
-  checkRunId?: string
-  issueUrl?: string
-}
-
 // Ham API yanıtı (UserProduct nested yapısı)
 export interface UserProductResponse {
   id: number
@@ -95,8 +84,6 @@ export type ProductDetail = Product
 
 export const getProducts   = ()              => http.get<UserProductResponse[]>('/products')
 export const getProduct    = (id: number)    => http.get<UserProductResponse>(`/products/${id}`)
-export const getProductScrapeErrors = (id: number, limit = 10) =>
-  http.get<ScrapeErrorLog[]>(`/products/${id}/scrape-errors`, { params: { limit } })
 export const createProduct = (url: string, targetPrice?: number) =>
   http.post<{ id: number; message?: string }>('/products', { url, targetPrice: targetPrice ?? null })
 export const checkProduct  = (id: number)    => http.post(`/products/${id}/check`)

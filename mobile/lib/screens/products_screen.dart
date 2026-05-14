@@ -146,7 +146,7 @@ class ProductsScreenState extends State<ProductsScreen> {
                               child: ListView.separated(
                                 padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
                                 itemCount: filtered.length,
-                                separatorBuilder: (_, __) =>
+                                separatorBuilder: (context, index) =>
                                     const SizedBox(height: 8),
                                 itemBuilder: (ctx, i) {
                                   final up = filtered[i];
@@ -283,7 +283,7 @@ class _ProductCard extends StatelessWidget {
                               width: 92,
                               height: 92,
                                 fit: BoxFit.contain,
-                              errorBuilder: (_, __, ___) =>
+                              errorBuilder: (context, error, stackTrace) =>
                                   const _PlaceholderImage(),
                             )
                           : const _PlaceholderImage(),
@@ -501,21 +501,24 @@ class _MiniChart extends StatelessWidget {
     final yMax = firstPrice + halfRange;
     final color = flat ? const Color(0xFF94A3B8) : const Color(0xFF2563EB);
 
-    final spots = prices.length == 1
+    final populatedSpots = <FlSpot>[];
+    for (var i = 0; i < values.length; i++) {
+      final v = values[i];
+      if (v == null) continue;
+      populatedSpots.add(FlSpot(i.toDouble(), v));
+    }
+
+    final spots = populatedSpots.length == 1
         ? () {
-            final idx = values.indexWhere((v) => v != null);
-            final left = (idx - 0.35).clamp(0, values.length - 1).toDouble();
-            final right = (idx + 0.35).clamp(0, values.length - 1).toDouble();
+            final x = populatedSpots.first.x;
+            final left = (x - 0.35).clamp(0, values.length - 1).toDouble();
+            final right = (x + 0.35).clamp(0, values.length - 1).toDouble();
             return [
               FlSpot(left, firstPrice),
               FlSpot(right, firstPrice),
             ];
           }()
-        : List<FlSpot>.generate(values.length, (i) {
-            final v = values[i];
-            if (v == null) return FlSpot.nullSpot;
-            return FlSpot(i.toDouble(), v);
-          });
+        : populatedSpots;
 
     return Container(
       width: 112,
@@ -831,7 +834,7 @@ class _AddProductSheetState extends State<_AddProductSheet> {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<int?>(
-              value: _selectedLabelId,
+              initialValue: _selectedLabelId,
               decoration: const InputDecoration(
                 labelText: 'Label (opsiyonel)',
                 prefixIcon: Icon(Icons.label_outline),

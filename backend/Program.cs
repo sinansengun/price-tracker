@@ -127,10 +127,6 @@ builder.Services.AddScoped<ScraperService>();
 builder.Services.AddSingleton<FirebaseRemoteConfigService>();
 builder.Services.AddScoped<PriceCheckJob>();
 builder.Services.AddMemoryCache();
-builder.Services.AddHttpClient<IScrapeErrorLogQueryService, SentryScrapeErrorLogQueryService>(client =>
-{
-    client.Timeout = TimeSpan.FromSeconds(4);
-});
 
 builder.Services.AddCors(opts =>
     opts.AddDefaultPolicy(p =>

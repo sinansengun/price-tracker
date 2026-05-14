@@ -208,9 +208,11 @@ class _PriceTrackerAppState extends State<PriceTrackerApp>
       status: permissionSettings.authorizationStatus.name,
     );
     await messaging.setForegroundNotificationPresentationOptions(
-      alert: true,
-      badge: true,
-      sound: true,
+      // Foreground'da bildirimi local notifications ile tek kanaldan gösteriyoruz.
+      // Bu sayede tap callback'i hem iOS hem Android'de tutarli calisir.
+      alert: false,
+      badge: false,
+      sound: false,
     );
 
     // iOS'ta önce APNs token'ın gelmesini bekle
@@ -249,12 +251,7 @@ class _PriceTrackerAppState extends State<PriceTrackerApp>
       );
 
       final n = message.notification;
-      final android = message.notification?.android;
       if (n == null) return;
-      if (defaultTargetPlatform != TargetPlatform.android || android == null) {
-        // iOS foreground'da sistem sunumu setForeground... ile yönetiliyor.
-        return;
-      }
 
       _localNotifications.show(
         n.hashCode,
@@ -268,6 +265,11 @@ class _PriceTrackerAppState extends State<PriceTrackerApp>
             importance: Importance.high,
             priority: Priority.high,
             icon: '@mipmap/ic_launcher',
+          ),
+          iOS: const DarwinNotificationDetails(
+            presentAlert: true,
+            presentBadge: true,
+            presentSound: true,
           ),
         ),
         payload: jsonEncode(message.data),
@@ -298,6 +300,27 @@ class _PriceTrackerAppState extends State<PriceTrackerApp>
 
     final userProductId = _extractUserProductId(data);
     if (userProductId == null) return;
+
+    final now = DateTime.now();
+    final priority = _notificationSourcePriority(source);
+    final recentlyHandled = _lastNotificationHandledAt != null &&
+        now.difference(_lastNotificationHandledAt!) <
+            const Duration(seconds: 5);
+
+    // Ayni zaman araliginda daha dusuk oncelikli bir event'in
+    // son tiklanan bildirimin yonlendirmesini ezmesini engelle.
+    if (recentlyHandled && priority < _lastNotificationHandledPriority) {
+      return;
+    }
+
+    // Kisa surede ayni urune duplicate yonlendirmeleri yoksay.
+    if (recentlyHandled && _lastNotificationUserProductId == userProductId) {
+      return;
+    }
+
+    _lastNotificationHandledAt = now;
+    _lastNotificationHandledPriority = priority;
+    _lastNotificationUserProductId = userProductId;
 
     if (!auth.isAuthenticated) {
       _pendingNotificationUserProductId = userProductId;
@@ -335,6 +358,18 @@ class _PriceTrackerAppState extends State<PriceTrackerApp>
     return null;
   }
 
+  int _notificationSourcePriority(String source) {
+    switch (source) {
+      case 'foreground_local_tap':
+      case 'resume_tap':
+        return 3;
+      case 'cold_start_tap':
+        return 2;
+      default:
+        return 1;
+    }
+  }
+
   Future<void> _handleSharedUrl(String url) async {
     // Aynı URL 5 saniye içinde tekrar gelirse yoksay (çift işleme koruması).
     final now = DateTime.now();
@@ -365,6 +400,9 @@ class _PriceTrackerAppState extends State<PriceTrackerApp>
 
   String? _pendingSharedUrl;
   int? _pendingNotificationUserProductId;
+  DateTime? _lastNotificationHandledAt;
+  int _lastNotificationHandledPriority = 0;
+  int? _lastNotificationUserProductId;
 
   // Çift URL işlemeyi engeller: URL scheme ve UserDefaults yolları
   // aynı anda tetiklendiğinde modal iki kez açılıp kapanmasın.

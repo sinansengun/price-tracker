@@ -18,8 +18,6 @@ class ProductDetailScreen extends StatefulWidget {
 
 class _ProductDetailScreenState extends State<ProductDetailScreen> {
   UserProduct? _up;
-  List<ScrapeErrorLog> _scrapeErrors = const [];
-  bool _scrapeErrorsLoaded = false;
   bool _loading = true;
   bool _checkLoading = false;
   bool _viewTracked = false;
@@ -45,8 +43,6 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     setState(() => _loading = true);
     final provider = context.read<ProductsProvider>();
     _up = await provider.fetchById(widget.userProductId);
-    _scrapeErrors = await provider.fetchScrapeErrors(widget.userProductId, limit: 10);
-    _scrapeErrorsLoaded = true;
 
     if (_up != null && !_viewTracked) {
       _viewTracked = true;
@@ -160,7 +156,8 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                           imageUrl,
                           height: 260,
                           fit: BoxFit.contain,
-                          errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                          errorBuilder: (context, error, stackTrace) =>
+                              const SizedBox.shrink(),
                         ),
                       ),
                     ),
@@ -208,14 +205,14 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                 Text(
                   'Eklendi: ${DateFormat('dd.MM.yyyy HH:mm').format(up.addedAt)}',
                   style:
-                      TextStyle(fontSize: 12, color: cs.onSurface.withOpacity(.5)),
+                      TextStyle(fontSize: 12, color: cs.onSurface.withValues(alpha: 0.5)),
                 ),
                 if (p.lastCheckedAt != null) ...[
                   const SizedBox(height: 8),
                   Text(
                     'Son kontrol: ${DateFormat('dd.MM.yyyy HH:mm').format(p.lastCheckedAt!)}',
                     style: TextStyle(
-                        fontSize: 12, color: cs.onSurface.withOpacity(.5)),
+                        fontSize: 12, color: cs.onSurface.withValues(alpha: 0.5)),
                   ),
                 ],
               ],
@@ -378,93 +375,6 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
           ),
         ],
 
-        const SizedBox(height: 12),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    const Icon(Icons.report_problem_outlined, size: 18),
-                    const SizedBox(width: 6),
-                    Text('Son Scrape Hataları',
-                        style: Theme.of(context).textTheme.titleSmall),
-                    const Spacer(),
-                    Text(
-                      'Son 10',
-                      style: TextStyle(
-                          fontSize: 11, color: cs.onSurface.withValues(alpha: 0.55)),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                if (!_scrapeErrorsLoaded)
-                  const Text(
-                    'Scrape logları yükleniyor...',
-                    style: TextStyle(fontSize: 12, color: Colors.grey),
-                  )
-                else if (_scrapeErrors.isEmpty)
-                  const Text(
-                    'Bu ürün için son dönemde scrape hatası yok ya da log verisi alınamadı.',
-                    style: TextStyle(fontSize: 12, color: Colors.grey),
-                  )
-                else
-                  ..._scrapeErrors.map((e) => Container(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFFF1F2),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: const Color(0xFFFECACA)),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    e.reason,
-                                    style: const TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w700,
-                                        color: Color(0xFFB91C1C)),
-                                  ),
-                                ),
-                                Text(
-                                  DateFormat('dd.MM HH:mm').format(e.attemptedAt),
-                                  style: const TextStyle(
-                                      fontSize: 11, color: Color(0xFFEF4444)),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              e.message,
-                              style: const TextStyle(
-                                  fontSize: 12, color: Color(0xFFB91C1C)),
-                            ),
-                            if (e.scraper != null || e.checkRunId != null) ...[
-                              const SizedBox(height: 4),
-                              Text(
-                                [
-                                  if (e.scraper != null) 'scraper: ${e.scraper}',
-                                  if (e.checkRunId != null)
-                                    'run: ${e.checkRunId!.substring(0, e.checkRunId!.length < 8 ? e.checkRunId!.length : 8)}',
-                                ].join(' • '),
-                                style: const TextStyle(
-                                    fontSize: 11, color: Color(0xFFEF4444)),
-                              ),
-                            ],
-                          ],
-                        ),
-                      )),
-              ],
-            ),
-          ),
-        ),
       ],
     );
   }
@@ -490,10 +400,11 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
               child: const Text('İptal')),
           TextButton(
             onPressed: () async {
-              Navigator.pop(context);
+              final navigator = Navigator.of(context);
               final provider = context.read<ProductsProvider>();
+              Navigator.pop(context);
               await provider.deleteProduct(widget.userProductId);
-              if (mounted) Navigator.pop(context);
+              if (mounted) navigator.pop();
             },
             child: const Text('Kaldır',
                 style: TextStyle(color: Colors.red)),
@@ -602,7 +513,7 @@ class _PriceTile extends StatelessWidget {
           Text(label,
               style: TextStyle(
                   fontSize: 11,
-                  color: Theme.of(context).colorScheme.onSurface.withOpacity(.6))),
+                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6))),
           const SizedBox(height: 2),
           if (value != null)
             PriceText(value: value!, fontSize: 15, color: color)

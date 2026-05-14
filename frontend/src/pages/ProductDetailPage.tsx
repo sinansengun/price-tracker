@@ -16,7 +16,7 @@ import {
 } from 'recharts'
 import {
   getProduct, checkProduct, deleteProduct, getLabels, createLabel, addProductLabel, removeProductLabel,
-  flattenProduct, UserProductResponse, Product, Label, ScrapeErrorLog, getProductScrapeErrors
+  flattenProduct, UserProductResponse, Product, Label
 } from '../api/api'
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -146,7 +146,6 @@ export default function ProductDetailPage() {
   const [error, setError]       = useState('')
   const [showActionMenu, setShowActionMenu] = useState(false)
   const [showLabelPanel, setShowLabelPanel] = useState(false)
-  const [scrapeErrors, setScrapeErrors] = useState<ScrapeErrorLog[]>([])
   const [newLabelName, setNewLabelName]     = useState('')
   const [newLabelColor, setNewLabelColor]   = useState('#6366f1')
   const [labelSaving, setLabelSaving]       = useState(false)
@@ -173,13 +172,6 @@ export default function ProductDetailPage() {
       setProduct(prodRes.data)
       setFlatProduct(flattenProduct(prodRes.data))
       setAllLabels(lblRes.data)
-
-      try {
-        const scrapeRes = await getProductScrapeErrors(Number(id), 10)
-        setScrapeErrors(scrapeRes.data)
-      } catch {
-        setScrapeErrors([])
-      }
     } catch {
       setError('Ürün bulunamadı.')
     } finally {
@@ -466,46 +458,6 @@ export default function ProductDetailPage() {
               </div>
             )}
           </div>
-        </div>
-
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <h2 className="text-sm font-bold text-gray-900">Son Scrape Hataları</h2>
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">Son 10 kayıt</p>
-          </div>
-
-          {scrapeErrors.length === 0 ? (
-            <p className="text-xs text-gray-500">Son dönemde scrape hatası görünmüyor.</p>
-          ) : (
-            <div className="space-y-2">
-              {scrapeErrors.map(item => (
-                <div
-                  key={item.eventId + item.attemptedAt}
-                  className="rounded-lg border border-red-100 bg-red-50 px-3 py-2"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-xs font-semibold text-red-700">{item.reason}</p>
-                    <p className="text-[11px] text-red-600">{fmtDate(item.attemptedAt)}</p>
-                  </div>
-                  <p className="mt-1 text-xs text-red-700">{item.message}</p>
-                  <div className="mt-1 flex items-center gap-2 text-[11px] text-red-500">
-                    {item.scraper && <span>scraper: {item.scraper}</span>}
-                    {item.checkRunId && <span>run: {item.checkRunId.slice(0, 8)}</span>}
-                    {item.issueUrl && (
-                      <a
-                        href={item.issueUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="ml-auto hover:underline"
-                      >
-                        Sentry →
-                      </a>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
 
       </main>

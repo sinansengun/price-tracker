@@ -65,13 +65,12 @@ class ProductsProvider extends ChangeNotifier {
       {String? name, double? targetPrice, int? initialLabelId}) async {
     try {
       _lastAddProductMessage = null;
+      final payload = <String, dynamic>{'url': url};
+      if (name != null) payload['name'] = name;
+      if (targetPrice != null) payload['targetPrice'] = targetPrice;
       final res = await ApiClient.post(
         '/products',
-        body: jsonEncode({
-          'url': url,
-          if (name != null) 'name': name,
-          if (targetPrice != null) 'targetPrice': targetPrice,
-        }),
+        body: jsonEncode(payload),
       );
 
       if (res.statusCode == 201) {
@@ -126,21 +125,6 @@ class ProductsProvider extends ChangeNotifier {
     try {
       await ApiClient.post('/products/$id/check');
     } catch (_) {}
-  }
-
-  Future<List<ScrapeErrorLog>> fetchScrapeErrors(int id, {int limit = 10}) async {
-    try {
-      final safeLimit = limit.clamp(1, 25);
-      final res = await ApiClient.get('/products/$id/scrape-errors?limit=$safeLimit');
-      if (res.statusCode == 200) {
-        final list = jsonDecode(res.body) as List<dynamic>;
-        return list
-            .map((e) => ScrapeErrorLog.fromJson(e as Map<String, dynamic>))
-            .toList();
-      }
-    } catch (_) {}
-
-    return const [];
   }
 
   // ── Label methods ──────────────────────────────────────────────
