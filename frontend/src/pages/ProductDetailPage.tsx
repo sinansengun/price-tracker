@@ -18,6 +18,7 @@ import {
   getProduct, checkProduct, deleteProduct, getLabels, createLabel, addProductLabel, removeProductLabel,
   flattenProduct, UserProductResponse, Product, Label, getMissingPriceLabel
 } from '../api/api'
+import AlertSettingsModal from '../components/AlertSettingsModal'
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 function fmt(price: number) {
@@ -43,6 +44,17 @@ function priceStateClass(product: Pick<Product, 'priceStatus'>) {
   return product.priceStatus === 'out_of_stock'
     ? 'bg-amber-100 text-amber-700'
     : 'bg-slate-100 text-slate-600'
+}
+
+function getAlertTypeButtonLabel(product: Pick<Product, 'alertMode'>) {
+  switch (product.alertMode) {
+    case 'target_price':
+      return 'Hedef fiyatlı takip'
+    case 'percentage':
+      return 'Yüzdeli takip'
+    default:
+      return 'Otomatik takip'
+  }
 }
 
 function fmtDate(iso: string) {
@@ -151,6 +163,7 @@ export default function ProductDetailPage() {
   const [deleting, setDeleting] = useState(false)
   const [error, setError]       = useState('')
   const [showActionMenu, setShowActionMenu] = useState(false)
+  const [showAlertSettings, setShowAlertSettings] = useState(false)
   const [showLabelPanel, setShowLabelPanel] = useState(false)
   const [newLabelName, setNewLabelName]     = useState('')
   const [newLabelColor, setNewLabelColor]   = useState('#6366f1')
@@ -361,15 +374,8 @@ export default function ProductDetailPage() {
             </div>
 
             <div className="flex flex-col items-start gap-1 text-xs text-gray-500">
-              <span>
-                Fiyat: <strong className="text-gray-700">{p.currentPrice != null ? <PriceText price={p.currentPrice} /> : (missingPriceLabel ?? '-')}</strong>
-              </span>
-              <span>
-                Ekleme tarihi: <strong className="text-gray-700">{fmtDate(p.createdAt)}</strong>
-              </span>
-              <span>
-                Hedef: <strong className="text-gray-700">{p.targetPrice != null ? <PriceText price={p.targetPrice} /> : '-'}</strong>
-              </span>
+              <strong className="text-gray-700">{p.currentPrice != null ? <PriceText price={p.currentPrice} /> : (missingPriceLabel ?? '-')}</strong>
+              <strong className="text-gray-700">{fmtDate(p.createdAt)}</strong>
             </div>
 
             {/* Labels */}
@@ -460,19 +466,37 @@ export default function ProductDetailPage() {
               </div>
             </div>
 
-            {hasChartData && (
-              <div className="mt-2 w-full sm:w-80 self-start">
-                <div className="mb-1 flex items-center justify-between gap-2">
-                  <h3 className="text-sm font-bold text-gray-900 text-left">Fiyat Geçmişi</h3>
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 text-right">Son 1 ay</p>
-                </div>
-                <DetailMiniChart points={detailChartPoints} />
+            <div className="mt-2 w-full sm:w-80 self-start">
+              <div className="mb-2 flex justify-end">
+                <button
+                  onClick={() => setShowAlertSettings(true)}
+                  className="w-fit rounded-full border border-brand-200 bg-brand-50 px-3 py-1.5 text-xs font-semibold text-brand-700 transition-colors hover:bg-brand-100"
+                >
+                  {getAlertTypeButtonLabel(p)}
+                </button>
               </div>
-            )}
+              {hasChartData && (
+                <>
+                  <div className="mb-1 flex items-center justify-between gap-2">
+                    <h3 className="text-sm font-bold text-gray-900 text-left">Fiyat Geçmişi</h3>
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 text-right">Son 1 ay</p>
+                  </div>
+                  <DetailMiniChart points={detailChartPoints} />
+                </>
+              )}
+            </div>
           </div>
         </div>
 
       </main>
+
+      {showAlertSettings && flatProduct && (
+        <AlertSettingsModal
+          product={flatProduct}
+          onClose={() => setShowAlertSettings(false)}
+          onSaved={load}
+        />
+      )}
     </div>
   )
 }

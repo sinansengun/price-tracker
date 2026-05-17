@@ -331,7 +331,17 @@ class _PriceTrackerAppState extends State<PriceTrackerApp>
   }
 
   void _openProductDetailFromNotification(int userProductId) {
-    _router.go('/products/$userProductId');
+    unawaited(_openProductDetailFromNotificationAsync(userProductId));
+  }
+
+  Future<void> _openProductDetailFromNotificationAsync(int userProductId) async {
+    final detailLocation = '/products/$userProductId';
+
+    _router.go('/products');
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) return;
+
+    _router.push(detailLocation);
   }
 
   int? _extractUserProductId(Map<String, dynamic> data) {

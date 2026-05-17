@@ -16,12 +16,12 @@ import { LineChart, Line, ResponsiveContainer, Tooltip, YAxis } from 'recharts'
 import {
   getProducts, getLabels, createProduct, addProductLabel, removeProductLabel, createLabel, deleteLabel,
   clearToken, flattenProduct,
-  Product, Label, PriceHistory, getMissingPriceLabel
+  Product, Label, PriceHistory, getAlertSummaryLabel, getMissingPriceLabel
 } from '../api/api'
+import AlertSettingsModal from '../components/AlertSettingsModal'
 
 function AddProductModal({ onClose, onAdded }: { onClose: () => void; onAdded: (message: string) => void }) {
   const [url, setUrl]               = useState('')
-  const [targetPrice, setTargetPrice] = useState('')
   const [loading, setLoading]       = useState(false)
   const [error, setError]           = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
@@ -37,8 +37,7 @@ function AddProductModal({ onClose, onAdded }: { onClose: () => void; onAdded: (
       const cleanUrl = url.trim()
         .replace(/\u200b|\u200c|\u200d|\ufeff/g, '')
         .replace(/&amp;/g, '&')
-      const tp = targetPrice ? parseFloat(targetPrice.replace(',', '.')) : undefined
-      const res = await createProduct(cleanUrl, tp)
+      const res = await createProduct(cleanUrl)
       onAdded(res.data.message ?? 'Urun eklendi. Fiyat bilgisi aliniyor...')
       onClose()
     } catch (err: any) {
@@ -69,21 +68,8 @@ function AddProductModal({ onClose, onAdded }: { onClose: () => void; onAdded: (
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
             />
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Hedef Fiyat <span className="text-gray-400 font-normal">(opsiyonel)</span>
-            </label>
-            <div className="relative">
-              <input
-                value={targetPrice}
-                onChange={e => setTargetPrice(e.target.value)}
-                placeholder="örn. 4500"
-                type="number"
-                min="0"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-              />
-              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">₺</span>
-            </div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+            Yeni ürünler otomatik takip ile eklenir. Ekledikten sonra alarmı yüzde indirim ya da sabit hedef fiyat olarak değiştirebilirsin.
           </div>
           {error && <p className="text-sm text-red-600">{error}</p>}
           <div className="flex gap-3 pt-1">
@@ -371,13 +357,14 @@ function MiniChart({ points }: { points: ChartPoint[] }) {
 }
 
 function ProductRow({
-  product, allLabels, onProductLabelsChange, onNewLabel, onLabelClick
+  product, allLabels, onProductLabelsChange, onNewLabel, onLabelClick, onAlertSettings
 }: {
   product: Product
   allLabels: Label[]
   onProductLabelsChange: (productId: number, labels: Label[]) => void
   onNewLabel: (label: Label) => void
   onLabelClick: (labelId: number) => void
+  onAlertSettings: (product: Product) => void
 }) {
   const navigate = useNavigate()
   const imgSrc = product.imageUrl?.replace('{size}', '200')
@@ -459,9 +446,16 @@ function ProductRow({
               onProductLabelsChange={onProductLabelsChange}
               onNewLabel={onNewLabel}
             />
-            {product.targetPrice != null && (
-              <span className="text-xs text-gray-400">🎯 Hedef: <PriceText price={product.targetPrice} /></span>
-            )}
+            <button
+              onClick={e => {
+                e.stopPropagation()
+                onAlertSettings(product)
+              }}
+              className="rounded-full border border-brand-200 bg-brand-50 px-2.5 py-1 text-[11px] font-semibold text-brand-700 transition-colors hover:bg-brand-100"
+            >
+              Alarm Ayarı
+            </button>
+            <span className="text-xs text-gray-400">{getAlertSummaryLabel(product)}</span>
           </div>
 
           <p className="mt-1 text-xs text-gray-400 hidden sm:block">
@@ -522,7 +516,7 @@ function ProductRow({
   )
 }
 
-function ProductCard({ product }: { product: Product }) {
+function ProductCard({ product, onAlertSettings }: { product: Product; onAlertSettings: (product: Product) => void }) {
   const navigate = useNavigate()
   const imgSrc = product.imageUrl?.replace('{size}', '375')
   const missingPriceLabel = getMissingPriceLabel(product)
@@ -577,9 +571,18 @@ function ProductCard({ product }: { product: Product }) {
         {initial != null && initial !== current && (
           <p className="text-xs text-gray-400">Başlangıç: <PriceText price={initial} /></p>
         )}
-        {product.targetPrice != null && (
-          <p className="text-xs text-gray-500">🎯 Hedef: <PriceText price={product.targetPrice} /></p>
-        )}
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs text-gray-500">{getAlertSummaryLabel(product)}</p>
+          <button
+            onClick={e => {
+              e.stopPropagation()
+              onAlertSettings(product)
+            }}
+            className="rounded-full border border-brand-200 bg-brand-50 px-2.5 py-1 text-[11px] font-semibold text-brand-700 transition-colors hover:bg-brand-100"
+          >
+            Alarm Ayarı
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -593,6 +596,7 @@ export default function ProductsPage() {
   const [activeLabel, setActiveLabel] = useState<number | null>(null)
   const [loading, setLoading]         = useState(true)
   const [showModal, setShowModal]     = useState(false)
+  const [editingAlertProduct, setEditingAlertProduct] = useState<Product | null>(null)
   const [infoMessage, setInfoMessage] = useState('')
   const [view, setView]               = useState<ViewMode>('list')
 
@@ -745,12 +749,19 @@ export default function ProductsPage() {
                 onProductLabelsChange={handleProductLabelsChange}
                 onNewLabel={handleNewLabel}
                 onLabelClick={setActiveLabel}
+                onAlertSettings={setEditingAlertProduct}
               />
             ))}
           </div>
         ) : (
           <div className="grid grid-cols-1 min-[400px]:grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
-            {filtered.map(p => <ProductCard key={p.id} product={p} />)}
+            {filtered.map(p => (
+              <ProductCard
+                key={p.id}
+                product={p}
+                onAlertSettings={setEditingAlertProduct}
+              />
+            ))}
           </div>
         )}
       </main>
@@ -762,6 +773,14 @@ export default function ProductsPage() {
             await load()
             setInfoMessage(message)
           }}
+        />
+      )}
+
+      {editingAlertProduct && (
+        <AlertSettingsModal
+          product={editingAlertProduct}
+          onClose={() => setEditingAlertProduct(null)}
+          onSaved={load}
         />
       )}
     </div>

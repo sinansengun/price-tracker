@@ -1,3 +1,4 @@
+using System.Globalization;
 using FirebaseAdmin;
 using FirebaseAdmin.Messaging;
 using Hangfire.Console;
@@ -112,45 +113,38 @@ public class PriceCheckJob(
             var minDropPercent = await remoteConfigService.GetMinPriceDropPercentAsync();
             var referencePrice = lastWeekMinPrice ?? previousPrice.Value;
 
-            if (result.Price >= referencePrice)
+            var triggeredAlerts = await DetermineTriggeredAlertsAsync(
+                product,
+                previousPrice.Value,
+                result.Price,
+                referencePrice,
+                minDropPercent,
+                context);
+
+            if (triggeredAlerts.Count == 0)
             {
                 logger.LogInformation(
-                    "Price dropped but no notification for '{Name}': current={CurrentPrice}, last7dMin={LastWeekMinPrice}",
+                    "Price dropped for '{Name}' but no user alert thresholds were met: previous={PreviousPrice}, reference={ReferencePrice}, current={CurrentPrice}",
                     product.Name,
-                    result.Price,
-                    referencePrice);
+                    previousPrice.Value,
+                    referencePrice,
+                    result.Price);
                 context?.WriteLine(
-                    $"Price dropped but no notification (not below last 7d min): current={result.Price:F2}, last7dMin={referencePrice:F2}");
-                return;
-            }
-
-            var dropPercent = referencePrice <= 0
-                ? 0
-                : ((referencePrice - result.Price) / referencePrice) * 100;
-
-            if (dropPercent < minDropPercent)
-            {
-                logger.LogInformation(
-                    "Price drop below threshold for '{Name}' (last 7d min): drop={DropPercent:F2}%, threshold={ThresholdPercent:F2}%",
-                    product.Name,
-                    dropPercent,
-                    minDropPercent);
-                context?.WriteLine(
-                    $"Price dropped but no notification (below threshold, last 7d min): drop={dropPercent:F2}%, threshold={minDropPercent:F2}%");
+                    $"Price dropped but no alert thresholds were met: previous={previousPrice.Value:F2}, reference={referencePrice:F2}, current={result.Price:F2}");
                 return;
             }
 
             logger.LogInformation(
-                "Price dropped for '{Name}' (last 7d min): {OldPrice} → {NewPrice} (drop={DropPercent:F2}%, threshold={ThresholdPercent:F2}%)",
+                "Price dropped for '{Name}' and triggered {AlertCount} alert(s): previous={PreviousPrice}, reference={ReferencePrice}, current={CurrentPrice}",
                 product.Name,
+                triggeredAlerts.Count,
+                previousPrice.Value,
                 referencePrice,
-                result.Price,
-                dropPercent,
-                minDropPercent);
+                result.Price);
             context?.WriteLine(
-                $"Price dropped for '{product.Name}' (last 7d min): {referencePrice:F2} -> {result.Price:F2} (drop={dropPercent:F2}%, threshold={minDropPercent:F2}%)");
+                $"Triggered {triggeredAlerts.Count} alert(s) for '{product.Name}': previous={previousPrice.Value:F2}, reference={referencePrice:F2}, current={result.Price:F2}");
 
-            await SendPriceDropNotificationsAsync(product, referencePrice, result.Price, context);
+            await SendTriggeredAlertNotificationsAsync(product, triggeredAlerts, context);
         }
         else if (previousPrice.HasValue && previousPrice.Value != result.Price)
         {
@@ -163,6 +157,93 @@ public class PriceCheckJob(
         {
             context?.WriteLine($"No price change for '{product.Name}' ({result.Price:F2})");
         }
+    }
+
+    private async Task<List<TriggeredAlert>> DetermineTriggeredAlertsAsync(
+        Product product,
+        decimal previousPrice,
+        decimal currentPrice,
+        decimal referencePrice,
+        decimal automaticThresholdPercent,
+        PerformContext? context)
+    {
+        var userProducts = await db.UserProducts
+            .Include(up => up.User)
+            .Where(up => up.ProductId == product.Id && up.User.FcmToken != null && up.User.FcmToken != "")
+            .ToListAsync();
+
+        if (userProducts.Count == 0)
+        {
+            context?.WriteLine($"No notification recipients with FCM token for productId={product.Id}");
+            return [];
+        }
+
+        var alerts = new List<TriggeredAlert>();
+
+        foreach (var userProduct in userProducts)
+        {
+            var alertMode = NormalizeAlertMode(userProduct.AlertMode);
+
+            switch (alertMode)
+            {
+                case UserProductAlertMode.Automatic:
+                    if (!ShouldTriggerReferenceDropAlert(referencePrice, currentPrice, automaticThresholdPercent, out var automaticDropPercent))
+                    {
+                        continue;
+                    }
+
+                    var automaticContent = BuildPriceDropNotificationContent(product.Name, referencePrice, currentPrice);
+                    alerts.Add(new TriggeredAlert(userProduct, automaticContent.title, automaticContent.body, referencePrice, currentPrice));
+                    context?.WriteLine(
+                        $"Alert matched: userProductId={userProduct.Id}, mode=automatic, drop={automaticDropPercent:F2}%, threshold={automaticThresholdPercent:F2}%");
+                    break;
+
+                case UserProductAlertMode.Percentage:
+                    if (!userProduct.DiscountThresholdPercent.HasValue)
+                    {
+                        continue;
+                    }
+
+                    if (!ShouldTriggerReferenceDropAlert(
+                            referencePrice,
+                            currentPrice,
+                            userProduct.DiscountThresholdPercent.Value,
+                            out var percentageDropPercent))
+                    {
+                        continue;
+                    }
+
+                    var percentageContent = BuildPercentageAlertNotificationContent(
+                        product.Name,
+                        percentageDropPercent,
+                        userProduct.DiscountThresholdPercent.Value,
+                        currentPrice);
+                    alerts.Add(new TriggeredAlert(userProduct, percentageContent.title, percentageContent.body, referencePrice, currentPrice));
+                    context?.WriteLine(
+                        $"Alert matched: userProductId={userProduct.Id}, mode=percentage, drop={percentageDropPercent:F2}%, threshold={userProduct.DiscountThresholdPercent.Value:F2}%");
+                    break;
+
+                case UserProductAlertMode.TargetPrice:
+                    if (!userProduct.TargetPrice.HasValue)
+                    {
+                        continue;
+                    }
+
+                    var targetPrice = userProduct.TargetPrice.Value;
+                    if (previousPrice <= targetPrice || currentPrice > targetPrice)
+                    {
+                        continue;
+                    }
+
+                    var targetContent = BuildTargetPriceNotificationContent(product.Name, targetPrice, currentPrice);
+                    alerts.Add(new TriggeredAlert(userProduct, targetContent.title, targetContent.body, targetPrice, currentPrice));
+                    context?.WriteLine(
+                        $"Alert matched: userProductId={userProduct.Id}, mode=target_price, target={targetPrice:F2}, current={currentPrice:F2}");
+                    break;
+            }
+        }
+
+        return alerts;
     }
 
     private static void UpdateProductMetadata(Product product, ScrapeResult result)
@@ -200,9 +281,10 @@ public class PriceCheckJob(
 
         var results = new List<object>();
         var historyEntries = new List<NotificationHistory>();
-        var (title, body) = BuildPriceDropNotificationContent(product.Name, oldPrice, newPrice);
         foreach (var up in userProducts)
         {
+            var previewAlert = BuildPreviewAlert(up, product.Name, oldPrice, newPrice);
+
             try
             {
                 var message = new Message
@@ -210,20 +292,36 @@ public class PriceCheckJob(
                     Token = up.User.FcmToken,
                     Notification = new Notification
                     {
-                        Title = title,
-                        Body = body
+                        Title = previewAlert.Title,
+                        Body = previewAlert.Body
                     },
                     Data = BuildNotificationData(product.Id, up.Id)
                 };
                 var response = await FirebaseMessaging.DefaultInstance.SendAsync(message);
                 results.Add(new { userId = up.UserId, status = "sent", response });
-                historyEntries.Add(BuildNotificationHistory(up, product.Id, oldPrice, newPrice, title, body, true, null));
+                historyEntries.Add(BuildNotificationHistory(
+                    up,
+                    product.Id,
+                    previewAlert.ReferencePrice,
+                    previewAlert.CurrentPrice,
+                    previewAlert.Title,
+                    previewAlert.Body,
+                    true,
+                    null));
             }
             catch (Exception ex)
             {
                 logger.LogWarning(ex, "FCM bildirimi gönderilemedi: userId={UserId}", up.UserId);
                 results.Add(new { userId = up.UserId, status = "failed", error = ex.Message });
-                historyEntries.Add(BuildNotificationHistory(up, product.Id, oldPrice, newPrice, title, body, false, ex.Message));
+                historyEntries.Add(BuildNotificationHistory(
+                    up,
+                    product.Id,
+                    previewAlert.ReferencePrice,
+                    previewAlert.CurrentPrice,
+                    previewAlert.Title,
+                    previewAlert.Body,
+                    false,
+                    ex.Message));
             }
         }
 
@@ -236,21 +334,20 @@ public class PriceCheckJob(
         return new { matchedUsers = userProducts.Count, results };
     }
 
-    private async Task SendPriceDropNotificationsAsync(Product product, decimal oldPrice, decimal newPrice, PerformContext? context = null)
+    private async Task SendTriggeredAlertNotificationsAsync(
+        Product product,
+        IReadOnlyCollection<TriggeredAlert> alerts,
+        PerformContext? context = null)
     {
-        if (FirebaseApp.DefaultInstance == null) return;
+        if (FirebaseApp.DefaultInstance == null || alerts.Count == 0) return;
 
-        var userProducts = await db.UserProducts
-            .Include(up => up.User)
-            .Where(up => up.ProductId == product.Id && up.User.FcmToken != null && up.User.FcmToken != "")
-            .ToListAsync();
-
-        context?.WriteLine($"Sending notifications: productId={product.Id}, recipients={userProducts.Count}");
+        context?.WriteLine($"Sending notifications: productId={product.Id}, recipients={alerts.Count}");
         var historyEntries = new List<NotificationHistory>();
-        var (title, body) = BuildPriceDropNotificationContent(product.Name, oldPrice, newPrice);
 
-        foreach (var up in userProducts)
+        foreach (var alert in alerts)
         {
+            var up = alert.UserProduct;
+
             try
             {
                 var message = new Message
@@ -258,20 +355,36 @@ public class PriceCheckJob(
                     Token = up.User.FcmToken,
                     Notification = new Notification
                     {
-                        Title = title,
-                        Body = body
+                        Title = alert.Title,
+                        Body = alert.Body
                     },
                     Data = BuildNotificationData(product.Id, up.Id)
                 };
                 await FirebaseMessaging.DefaultInstance.SendAsync(message);
                 context?.WriteLine($"Notification sent: userId={up.UserId}");
-                historyEntries.Add(BuildNotificationHistory(up, product.Id, oldPrice, newPrice, title, body, true, null));
+                historyEntries.Add(BuildNotificationHistory(
+                    up,
+                    product.Id,
+                    alert.ReferencePrice,
+                    alert.CurrentPrice,
+                    alert.Title,
+                    alert.Body,
+                    true,
+                    null));
             }
             catch (Exception ex)
             {
                 logger.LogWarning(ex, "FCM bildirimi gönderilemedi: userId={UserId}", up.UserId);
                 context?.WriteLine($"Notification failed: userId={up.UserId}, error={ex.Message}");
-                historyEntries.Add(BuildNotificationHistory(up, product.Id, oldPrice, newPrice, title, body, false, ex.Message));
+                historyEntries.Add(BuildNotificationHistory(
+                    up,
+                    product.Id,
+                    alert.ReferencePrice,
+                    alert.CurrentPrice,
+                    alert.Title,
+                    alert.Body,
+                    false,
+                    ex.Message));
             }
         }
 
@@ -324,7 +437,84 @@ public class PriceCheckJob(
         var dropPercent = CalculateDropPercent(oldPrice, newPrice);
         var dropPercentText = dropPercent.ToString("0.#");
 
-        return ("Fiyat Düştü! 🎉", $"{shortName} için en ucuz fiyat geçen haftaya göre %{dropPercentText} düştü. Hemen Price Tracker'da gözat.");
+        return (
+            "Otomatik Alarm: Fiyat Düştü",
+            $"{shortName} son 7 günün en düşük fiyatına göre %{dropPercentText} daha ucuz. Güncel fiyat {FormatPrice(newPrice)}.");
+    }
+
+    private static (string title, string body) BuildPercentageAlertNotificationContent(
+        string? productName,
+        decimal dropPercent,
+        decimal thresholdPercent,
+        decimal currentPrice)
+    {
+        var shortName = TruncateProductName(productName, 30);
+        var dropPercentText = dropPercent.ToString("0.#");
+        var thresholdPercentText = thresholdPercent.ToString("0.#");
+
+        return (
+            "Yüzde Alarmı Tetiklendi",
+            $"{shortName} son 7 günün en düşük fiyatına göre %{dropPercentText} düştü ve %{thresholdPercentText} eşiğini geçti. Güncel fiyat {FormatPrice(currentPrice)}.");
+    }
+
+    private static (string title, string body) BuildTargetPriceNotificationContent(
+        string? productName,
+        decimal targetPrice,
+        decimal newPrice)
+    {
+        var shortName = TruncateProductName(productName, 30);
+        var targetPriceText = FormatPrice(targetPrice);
+        var newPriceText = FormatPrice(newPrice);
+
+        return (
+            "Hedef Fiyat Alarmı Tetiklendi",
+            $"{shortName} {targetPriceText} hedefinin altına indi. Güncel fiyat {newPriceText}.");
+    }
+
+    private static TriggeredAlert BuildPreviewAlert(
+        UserProduct userProduct,
+        string? productName,
+        decimal referencePrice,
+        decimal currentPrice)
+    {
+        return NormalizeAlertMode(userProduct.AlertMode) switch
+        {
+            UserProductAlertMode.Percentage when userProduct.DiscountThresholdPercent.HasValue =>
+                new TriggeredAlert(
+                    userProduct,
+                    BuildPercentageAlertNotificationContent(
+                        productName,
+                        CalculateDropPercent(referencePrice, currentPrice),
+                        userProduct.DiscountThresholdPercent.Value,
+                        currentPrice).title,
+                    BuildPercentageAlertNotificationContent(
+                        productName,
+                        CalculateDropPercent(referencePrice, currentPrice),
+                        userProduct.DiscountThresholdPercent.Value,
+                        currentPrice).body,
+                    referencePrice,
+                    currentPrice),
+
+            UserProductAlertMode.TargetPrice when userProduct.TargetPrice.HasValue =>
+                new TriggeredAlert(
+                    userProduct,
+                    BuildTargetPriceNotificationContent(productName, userProduct.TargetPrice.Value, currentPrice).title,
+                    BuildTargetPriceNotificationContent(productName, userProduct.TargetPrice.Value, currentPrice).body,
+                    userProduct.TargetPrice.Value,
+                    currentPrice),
+
+            _ => new TriggeredAlert(
+                userProduct,
+                BuildPriceDropNotificationContent(productName, referencePrice, currentPrice).title,
+                BuildPriceDropNotificationContent(productName, referencePrice, currentPrice).body,
+                referencePrice,
+                currentPrice)
+        };
+    }
+
+    private static string FormatPrice(decimal price)
+    {
+        return $"{price.ToString("N2", CultureInfo.GetCultureInfo("tr-TR"))} TL";
     }
 
     private static string TruncateProductName(string? productName, int maxLength)
@@ -348,6 +538,34 @@ public class PriceCheckJob(
 
         return ((oldPrice - newPrice) / oldPrice) * 100m;
     }
+
+    private static bool ShouldTriggerReferenceDropAlert(
+        decimal referencePrice,
+        decimal currentPrice,
+        decimal thresholdPercent,
+        out decimal dropPercent)
+    {
+        dropPercent = CalculateDropPercent(referencePrice, currentPrice);
+
+        return referencePrice > 0
+            && currentPrice < referencePrice
+            && dropPercent >= thresholdPercent;
+    }
+
+    private static string NormalizeAlertMode(string? alertMode)
+    {
+        var normalized = alertMode?.Trim().ToLowerInvariant() ?? string.Empty;
+        return UserProductAlertMode.IsValid(normalized)
+            ? normalized
+            : UserProductAlertMode.Automatic;
+    }
+
+    private sealed record TriggeredAlert(
+        UserProduct UserProduct,
+        string Title,
+        string Body,
+        decimal ReferencePrice,
+        decimal CurrentPrice);
 
     private static void CaptureScrapeFailure(
         int productId,

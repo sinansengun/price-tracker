@@ -121,6 +121,34 @@ class ProductsProvider extends ChangeNotifier {
     }
   }
 
+  Future<String?> updateAlertSettings(
+    int id, {
+    required String alertMode,
+    double? discountThresholdPercent,
+    double? targetPrice,
+  }) async {
+    try {
+      final res = await ApiClient.patch(
+        '/products/$id/alert-settings',
+        body: jsonEncode({
+          'alertMode': alertMode,
+          'discountThresholdPercent': discountThresholdPercent,
+          'targetPrice': targetPrice,
+        }),
+      );
+
+      if (res.statusCode == 200) {
+        await fetchAll();
+        return null;
+      }
+
+      final body = jsonDecode(res.body) as Map<String, dynamic>;
+      return body['error'] as String? ?? 'Güncelleme başarısız.';
+    } catch (_) {
+      return 'Sunucuya bağlanılamadı.';
+    }
+  }
+
   Future<void> manualCheck(int id) async {
     try {
       await ApiClient.post('/products/$id/check');
@@ -154,6 +182,8 @@ class ProductsProvider extends ChangeNotifier {
         final newLabels = up.labels.where((l) => l.id != id).toList();
         return UserProduct(
           id: up.id,
+          alertMode: up.alertMode,
+          discountThresholdPercent: up.discountThresholdPercent,
           targetPrice: up.targetPrice,
           addedAt: up.addedAt,
           product: up.product,
@@ -199,6 +229,8 @@ class ProductsProvider extends ChangeNotifier {
       if (up.id != productId) return up;
       return UserProduct(
         id: up.id,
+        alertMode: up.alertMode,
+        discountThresholdPercent: up.discountThresholdPercent,
         targetPrice: up.targetPrice,
         addedAt: up.addedAt,
         product: up.product,

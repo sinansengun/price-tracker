@@ -1,6 +1,23 @@
 const productPriceStatusAvailable = 'available';
 const productPriceStatusOutOfStock = 'out_of_stock';
 const productPriceStatusPriceNotFound = 'price_not_found';
+const userProductAlertModeAutomatic = 'automatic';
+const userProductAlertModePercentage = 'percentage';
+const userProductAlertModeTargetPrice = 'target_price';
+
+String _formatAlertNumber(double value) {
+  final rounded = value.roundToDouble();
+  if ((value - rounded).abs() < 0.001) {
+    return rounded.toStringAsFixed(0);
+  }
+
+  final oneDecimal = double.parse(value.toStringAsFixed(1));
+  if ((value - oneDecimal).abs() < 0.001) {
+    return oneDecimal.toStringAsFixed(1).replaceAll('.', ',');
+  }
+
+  return value.toStringAsFixed(2).replaceAll('.', ',');
+}
 
 class Label {
   final int id;
@@ -84,6 +101,8 @@ class ProductInfo {
 
 class UserProduct {
   final int id;
+  final String alertMode;
+  final double? discountThresholdPercent;
   final double? targetPrice;
   final DateTime addedAt;
   final ProductInfo product;
@@ -91,6 +110,8 @@ class UserProduct {
 
   const UserProduct({
     required this.id,
+    this.alertMode = userProductAlertModeAutomatic,
+    this.discountThresholdPercent,
     this.targetPrice,
     required this.addedAt,
     required this.product,
@@ -99,6 +120,9 @@ class UserProduct {
 
   factory UserProduct.fromJson(Map<String, dynamic> j) => UserProduct(
         id: j['id'],
+        alertMode: (j['alertMode'] as String?) ?? userProductAlertModeAutomatic,
+        discountThresholdPercent:
+            (j['discountThresholdPercent'] as num?)?.toDouble(),
         targetPrice: (j['targetPrice'] as num?)?.toDouble(),
         addedAt: DateTime.parse(j['addedAt']).toLocal(),
         product: ProductInfo.fromJson(j['product'] as Map<String, dynamic>),
@@ -106,4 +130,32 @@ class UserProduct {
             .map((e) => Label.fromJson(e as Map<String, dynamic>))
             .toList(),
       );
+
+  String get normalizedAlertMode {
+    return switch (alertMode) {
+      userProductAlertModePercentage => userProductAlertModePercentage,
+      userProductAlertModeTargetPrice => userProductAlertModeTargetPrice,
+      _ => userProductAlertModeAutomatic,
+    };
+  }
+
+  String get alertSummaryLabel {
+    return switch (normalizedAlertMode) {
+      userProductAlertModePercentage => discountThresholdPercent != null
+          ? '%${_formatAlertNumber(discountThresholdPercent!)} indirim alarmı'
+          : 'Yüzde indirim alarmı',
+      userProductAlertModeTargetPrice => targetPrice != null
+          ? '${_formatAlertNumber(targetPrice!)} TL hedef fiyat'
+          : 'Hedef fiyat alarmı',
+      _ => 'Otomatik takip',
+    };
+  }
+
+  String get alertButtonLabel {
+    return switch (normalizedAlertMode) {
+      userProductAlertModePercentage => 'Yüzdeli takip',
+      userProductAlertModeTargetPrice => 'Hedef fiyatlı takip',
+      _ => 'Otomatik takip',
+    };
+  }
 }

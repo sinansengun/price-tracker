@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../models/product.dart';
 import '../providers/products_provider.dart';
 import '../services/analytics_service.dart';
+import 'alert_settings_sheet.dart';
 import 'label_sheet.dart';
 
 class ProductDetailScreen extends StatefulWidget {
@@ -47,7 +48,8 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     if (_up != null && !_viewTracked) {
       _viewTracked = true;
       await AnalyticsService.instance.logProductDetailViewed(
-        hasTargetPrice: _up!.targetPrice != null,
+        hasTargetPrice: _up!.normalizedAlertMode == userProductAlertModeTargetPrice &&
+            _up!.targetPrice != null,
         labelCount: _up!.labels.length,
         historyPointCount: _up!.product.priceHistories.length,
       );
@@ -193,33 +195,32 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                 const SizedBox(height: 16),
                 Row(
                   children: [
-                    _PriceTile(
-                        label: 'Güncel Fiyat',
-                        value: p.currentPrice,
-                      emptyText: missingPriceLabel,
-                      emptyColor: p.isOutOfStock ? Colors.orange.shade700 : null,
-                        color: isPriceDrop ? Colors.green : null),
-                    const SizedBox(width: 16),
-                    _PriceTile(
-                      label: 'Başlangıç Fiyatı',
-                      value: p.initialPrice,
-                      emptyText: 'Henüz yok'),
+                    Expanded(
+                      child: p.currentPrice != null
+                          ? PriceText(
+                              value: p.currentPrice!,
+                              fontSize: 18,
+                              color: isPriceDrop ? Colors.green : null,
+                            )
+                          : Text(
+                              missingPriceLabel,
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: p.isOutOfStock
+                                    ? Colors.orange.shade700
+                                    : cs.onSurface.withValues(alpha: 0.72),
+                              ),
+                            ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Eklendi: ${DateFormat('dd.MM.yyyy HH:mm').format(up.addedAt)}',
+                  DateFormat('dd.MM.yyyy HH:mm').format(up.addedAt),
                   style:
                       TextStyle(fontSize: 12, color: cs.onSurface.withValues(alpha: 0.5)),
                 ),
-                if (p.lastCheckedAt != null) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    'Son kontrol: ${DateFormat('dd.MM.yyyy HH:mm').format(p.lastCheckedAt!)}',
-                    style: TextStyle(
-                        fontSize: 12, color: cs.onSurface.withValues(alpha: 0.5)),
-                  ),
-                ],
               ],
             ),
           ),
@@ -305,11 +306,34 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                 children: [
                   Row(
                     children: [
-                      const Icon(Icons.show_chart, size: 18),
-                      const SizedBox(width: 6),
-                      Text(
-                        'Fiyat Geçmişi',
-                        style: Theme.of(context).textTheme.titleSmall,
+                      Expanded(
+                        child: Row(
+                          children: [
+                            const Icon(Icons.show_chart, size: 18),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Fiyat Geçmişi',
+                              style: Theme.of(context).textTheme.titleSmall,
+                            ),
+                          ],
+                        ),
+                      ),
+                      TextButton.icon(
+                        onPressed: () => _openAlertSettingsSheet(context, up),
+                        style: TextButton.styleFrom(
+                          padding: EdgeInsets.zero,
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        icon: const Icon(Icons.notifications_active_outlined, size: 15),
+                        label: Text(
+                          up.alertButtonLabel,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -364,20 +388,6 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
               ),
             ),
           ),
-          const SizedBox(height: 4),
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton.icon(
-              onPressed: () => _showTargetPriceDialog(context, up),
-              icon: const Icon(Icons.local_offer_outlined, size: 15),
-              label: Text(
-                up.targetPrice != null
-                    ? 'Hedef: ${fmtPrice(up.targetPrice!)} ₺'
-                    : 'Hedef Fiyat Belirle',
-                style: const TextStyle(fontSize: 12),
-              ),
-            ),
-          ),
         ],
 
       ],
@@ -419,42 +429,11 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     );
   }
 
-  void _showTargetPriceDialog(BuildContext context, UserProduct up) {
-    final ctrl = TextEditingController(
-        text: up.targetPrice?.toStringAsFixed(2) ?? '');
-
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Hedef Fiyat'),
-        content: TextField(
-          controller: ctrl,
-          keyboardType:
-              const TextInputType.numberWithOptions(decimal: true),
-          decoration: const InputDecoration(
-              prefixText: '₺ ', border: OutlineInputBorder()),
-          autofocus: true,
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('İptal')),
-          FilledButton(
-            onPressed: () async {
-              final price = ctrl.text.isNotEmpty
-                  ? double.tryParse(ctrl.text.replaceAll(',', '.'))
-                  : null;
-              Navigator.pop(context);
-              await context
-                  .read<ProductsProvider>()
-                  .updateTargetPrice(up.id, price);
-              await _load();
-            },
-            child: const Text('Kaydet'),
-          ),
-        ],
-      ),
-    );
+  Future<void> _openAlertSettingsSheet(BuildContext context, UserProduct up) async {
+    final updated = await showAlertSettingsSheet(context, up);
+    if (updated == true && mounted) {
+      await _load();
+    }
   }
 }
 
@@ -500,49 +479,6 @@ List<PricePoint> _filterPriceHistory(
     // Aynı gün + aynı fiyat → atla
   }
   return result;
-}
-
-class _PriceTile extends StatelessWidget {
-  final String label;
-  final double? value;
-  final Color? color;
-  final String emptyText;
-  final Color? emptyColor;
-
-  const _PriceTile({
-    required this.label,
-    this.value,
-    this.color,
-    this.emptyText = '—',
-    this.emptyColor,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label,
-              style: TextStyle(
-                  fontSize: 11,
-                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6))),
-          const SizedBox(height: 2),
-          if (value != null)
-            PriceText(value: value!, fontSize: 15, color: color)
-          else
-            Text(
-              emptyText,
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
-                color: emptyColor,
-              ),
-            ),
-        ],
-      ),
-    );
-  }
 }
 
 class _PriceChart extends StatelessWidget {

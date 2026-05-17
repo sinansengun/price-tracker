@@ -28,6 +28,7 @@ export const createProduct = (url, targetPrice) => http.post('/products', { url,
 export const checkProduct = (id) => http.post(`/products/${id}/check`);
 export const deleteProduct = (id) => http.delete(`/products/${id}`);
 export const updateTargetPrice = (id, targetPrice) => http.patch(`/products/${id}/target-price`, { targetPrice });
+export const updateAlertSettings = (id, payload) => http.patch(`/products/${id}/alert-settings`, payload);
 export const getLabels = () => http.get('/labels');
 export const createLabel = (name, color) => http.post('/labels', { name, color });
 export const deleteLabel = (id) => http.delete(`/labels/${id}`);
@@ -37,6 +38,8 @@ export const removeProductLabel = (productId, labelId) => http.delete(`/products
 export function flattenProduct(up) {
     return {
         id: up.id,
+        alertMode: up.alertMode ?? 'automatic',
+        discountThresholdPercent: up.discountThresholdPercent,
         name: up.product.name,
         url: up.product.url,
         imageUrl: up.product.imageUrl,
@@ -51,6 +54,31 @@ export function flattenProduct(up) {
         labels: up.labels ?? [],
         priceHistories: up.product.priceHistories ?? [],
     };
+}
+function formatAlertNumber(value) {
+    const rounded = Math.round(value);
+    if (Math.abs(value - rounded) < 0.001) {
+        return String(rounded);
+    }
+    const oneDecimal = Number(value.toFixed(1));
+    if (Math.abs(value - oneDecimal) < 0.001) {
+        return oneDecimal.toFixed(1).replace('.', ',');
+    }
+    return value.toFixed(2).replace('.', ',');
+}
+export function getAlertSummaryLabel(product) {
+    switch (product.alertMode) {
+        case 'percentage':
+            return product.discountThresholdPercent != null
+                ? `%${formatAlertNumber(product.discountThresholdPercent)} indirim alarmı`
+                : 'Yüzde indirim alarmı';
+        case 'target_price':
+            return product.targetPrice != null
+                ? `${formatAlertNumber(product.targetPrice)} TL hedef fiyat`
+                : 'Hedef fiyat alarmı';
+        default:
+            return 'Otomatik takip';
+    }
 }
 export function getMissingPriceLabel(product) {
     if (product.currentPrice != null)

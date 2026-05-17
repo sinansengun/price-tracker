@@ -38,6 +38,7 @@ export interface PriceHistory {
 }
 
 export type ProductPriceStatus = 'available' | 'out_of_stock' | 'price_not_found'
+export type UserProductAlertMode = 'automatic' | 'percentage' | 'target_price'
 
 export interface Label {
   id: number
@@ -48,6 +49,8 @@ export interface Label {
 // Ham API yanıtı (UserProduct nested yapısı)
 export interface UserProductResponse {
   id: number
+  alertMode?: UserProductAlertMode
+  discountThresholdPercent?: number
   targetPrice?: number
   addedAt: string
   product: {
@@ -69,6 +72,8 @@ export interface UserProductResponse {
 // UI'da kullanılan flat yapı (flatten() ile dönüştürülür)
 export interface Product {
   id: number          // UserProduct.Id
+  alertMode: UserProductAlertMode
+  discountThresholdPercent?: number
   name: string
   url: string
   imageUrl?: string
@@ -94,6 +99,14 @@ export const checkProduct  = (id: number)    => http.post(`/products/${id}/check
 export const deleteProduct = (id: number)    => http.delete(`/products/${id}`)
 export const updateTargetPrice = (id: number, targetPrice: number | null) =>
   http.patch(`/products/${id}/target-price`, { targetPrice })
+export const updateAlertSettings = (
+  id: number,
+  payload: {
+    alertMode: UserProductAlertMode
+    discountThresholdPercent?: number | null
+    targetPrice?: number | null
+  }
+) => http.patch(`/products/${id}/alert-settings`, payload)
 
 export const getLabels    = ()                                => http.get<Label[]>('/labels')
 export const createLabel  = (name: string, color: string)    => http.post<Label>('/labels', { name, color })
@@ -105,6 +118,8 @@ export const removeProductLabel = (productId: number, labelId: number) => http.d
 export function flattenProduct(up: UserProductResponse): Product {
   return {
     id: up.id,
+    alertMode: up.alertMode ?? 'automatic',
+    discountThresholdPercent: up.discountThresholdPercent,
     name: up.product.name,
     url: up.product.url,
     imageUrl: up.product.imageUrl,
@@ -118,6 +133,37 @@ export function flattenProduct(up: UserProductResponse): Product {
     addedAt: up.addedAt,
     labels: up.labels ?? [],
     priceHistories: up.product.priceHistories ?? [],
+  }
+}
+
+function formatAlertNumber(value: number): string {
+  const rounded = Math.round(value)
+  if (Math.abs(value - rounded) < 0.001) {
+    return String(rounded)
+  }
+
+  const oneDecimal = Number(value.toFixed(1))
+  if (Math.abs(value - oneDecimal) < 0.001) {
+    return oneDecimal.toFixed(1).replace('.', ',')
+  }
+
+  return value.toFixed(2).replace('.', ',')
+}
+
+export function getAlertSummaryLabel(
+  product: Pick<Product, 'alertMode' | 'discountThresholdPercent' | 'targetPrice'>
+): string {
+  switch (product.alertMode) {
+    case 'percentage':
+      return product.discountThresholdPercent != null
+        ? `%${formatAlertNumber(product.discountThresholdPercent)} indirim alarmı`
+        : 'Yüzde indirim alarmı'
+    case 'target_price':
+      return product.targetPrice != null
+        ? `${formatAlertNumber(product.targetPrice)} TL hedef fiyat`
+        : 'Hedef fiyat alarmı'
+    default:
+      return 'Otomatik takip'
   }
 }
 

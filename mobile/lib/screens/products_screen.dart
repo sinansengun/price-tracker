@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../models/product.dart';
 import '../providers/products_provider.dart';
 import '../services/analytics_service.dart';
+import 'alert_settings_sheet.dart';
 import 'label_sheet.dart';
 
 class ProductsScreen extends StatefulWidget {
@@ -415,14 +416,24 @@ class _ProductCard extends StatelessWidget {
                             color: cs.onSurface.withValues(alpha: 0.7),
                           ),
                         ),
-                        Text(
-                          up.targetPrice != null
-                              ? 'Hedef: ${fmtPrice(up.targetPrice!)} ₺'
-                              : 'Hedef: —',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: cs.onSurface.withValues(alpha: 0.65),
-                            fontWeight: FontWeight.w600,
+                        TextButton.icon(
+                          onPressed: () => _showAlertSettingsSheet(context),
+                          style: TextButton.styleFrom(
+                            padding: EdgeInsets.zero,
+                            minimumSize: Size.zero,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                          icon: const Icon(
+                            Icons.notifications_active_outlined,
+                            size: 15,
+                          ),
+                          label: Text(
+                            up.alertButtonLabel,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
                         ),
                       ],
@@ -445,6 +456,10 @@ class _ProductCard extends StatelessWidget {
       isScrollControlled: true,
       builder: (_) => LabelSheet(userProductId: up.id),
     );
+  }
+
+  Future<void> _showAlertSettingsSheet(BuildContext context) async {
+    await showAlertSettingsSheet(context, up);
   }
 }
 
@@ -690,7 +705,6 @@ class _AddProductSheet extends StatefulWidget {
 class _AddProductSheetState extends State<_AddProductSheet> {
   final _formKey = GlobalKey<FormState>();
   final _urlCtrl = TextEditingController();
-  final _targetCtrl = TextEditingController();
   int? _selectedLabelId;
   bool _loading = false;
   String? _error;
@@ -720,7 +734,6 @@ class _AddProductSheetState extends State<_AddProductSheet> {
   @override
   void dispose() {
     _urlCtrl.dispose();
-    _targetCtrl.dispose();
     super.dispose();
   }
 
@@ -734,19 +747,15 @@ class _AddProductSheetState extends State<_AddProductSheet> {
       _error = null;
     });
 
-    final targetPrice = _targetCtrl.text.isNotEmpty
-        ? double.tryParse(_targetCtrl.text.replaceAll(',', '.'))
-        : null;
     final normalizedUrl = _urlCtrl.text.trim();
 
     await AnalyticsService.instance.logAddProductSubmitted(
       url: normalizedUrl,
-      hasTargetPrice: targetPrice != null,
+      hasTargetPrice: false,
     );
 
     final err = await productsProvider.addProduct(
       normalizedUrl,
-      targetPrice: targetPrice,
       initialLabelId: _selectedLabelId,
     );
 
@@ -754,7 +763,7 @@ class _AddProductSheetState extends State<_AddProductSheet> {
 
     if (err == null) {
       await AnalyticsService.instance
-          .logAddProductSuccess(hasTargetPrice: targetPrice != null);
+          .logAddProductSuccess(hasTargetPrice: false);
       if (!mounted) return;
       final infoMessage = productsProvider.lastAddProductMessage ??
           'Urun eklendi. Fiyat bilgisi aliniyor...';
@@ -830,15 +839,25 @@ class _AddProductSheetState extends State<_AddProductSheet> {
               },
             ),
             const SizedBox(height: 12),
-            TextFormField(
-              controller: _targetCtrl,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(
-                labelText: 'Hedef Fiyat (opsiyonel)',
-                prefixIcon: Icon(Icons.local_offer_outlined),
-                prefixText: '₺ ',
-                border: OutlineInputBorder(),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(Icons.notifications_active_outlined, size: 18),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Ürün ilk olarak otomatik takip ile eklenir. İstersen ekledikten sonra Alarm Ayarı butonundan yüzde indirim ya da hedef fiyat alarmına çevirebilirsin.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
+                ],
               ),
             ),
             const SizedBox(height: 12),

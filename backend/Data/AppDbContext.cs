@@ -39,6 +39,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
         modelBuilder.Entity<UserProduct>(e =>
         {
             e.HasKey(up => up.Id);
+            e.Property(up => up.AlertMode)
+                .HasMaxLength(32)
+                .HasDefaultValue(UserProductAlertMode.Automatic);
+            e.Property(up => up.DiscountThresholdPercent).HasColumnType("decimal(18,2)");
             e.Property(up => up.TargetPrice).HasColumnType("decimal(18,2)");
             e.HasIndex(up => new { up.UserId, up.ProductId }).IsUnique();
             e.HasOne(up => up.User)

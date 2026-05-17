@@ -30,6 +30,8 @@ public class ProductsController(
             .Select(up => new
             {
                 up.Id,
+                up.AlertMode,
+                up.DiscountThresholdPercent,
                 up.TargetPrice,
                 up.AddedAt,
                 Product = new
@@ -67,6 +69,8 @@ public class ProductsController(
             .Select(up => new
             {
                 up.Id,
+                up.AlertMode,
+                up.DiscountThresholdPercent,
                 up.TargetPrice,
                 up.AddedAt,
                 Product = new
@@ -104,6 +108,16 @@ public class ProductsController(
              !url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)))
             return BadRequest(new { error = "Geçersiz URL. http:// veya https:// ile başlamalıdır." });
 
+        if (!TryBuildAlertSettings(
+                request.AlertMode,
+                request.DiscountThresholdPercent,
+                request.TargetPrice,
+                out var alertSettings,
+                out var alertError))
+        {
+            return BadRequest(new { error = alertError });
+        }
+
         // URL'e göre mevcut ürünü bul ya da yeni oluştur (benzersizlik burada sağlanıyor)
         var product = await db.Products.FirstOrDefaultAsync(p => p.Url == url);
         if (product == null)
@@ -130,7 +144,9 @@ public class ProductsController(
         {
             UserId = UserId,
             ProductId = product.Id,
-            TargetPrice = request.TargetPrice
+            AlertMode = alertSettings.AlertMode,
+            DiscountThresholdPercent = alertSettings.DiscountThresholdPercent,
+            TargetPrice = alertSettings.TargetPrice
         };
         db.UserProducts.Add(userProduct);
         await db.SaveChangesAsync();
@@ -171,12 +187,48 @@ public class ProductsController(
     [HttpPatch("{id:int}/target-price")]
     public async Task<IActionResult> UpdateTargetPrice(int id, [FromBody] UpdateTargetPriceRequest request)
     {
+        var wrappedRequest = new UpdateAlertSettingsRequest
+        {
+            AlertMode = request.TargetPrice.HasValue
+                ? UserProductAlertMode.TargetPrice
+                : UserProductAlertMode.Automatic,
+            TargetPrice = request.TargetPrice
+        };
+
+        return await UpdateAlertSettingsInternal(id, wrappedRequest);
+    }
+
+    // PATCH api/products/{id}/alert-settings
+    [HttpPatch("{id:int}/alert-settings")]
+    public async Task<IActionResult> UpdateAlertSettings(int id, [FromBody] UpdateAlertSettingsRequest request)
+    {
+        return await UpdateAlertSettingsInternal(id, request);
+    }
+
+    private async Task<IActionResult> UpdateAlertSettingsInternal(int id, UpdateAlertSettingsRequest request)
+    {
         var up = await db.UserProducts.FirstOrDefaultAsync(up => up.Id == id && up.UserId == UserId);
         if (up == null) return NotFound();
 
-        up.TargetPrice = request.TargetPrice;
+        if (!TryBuildAlertSettings(
+                request.AlertMode,
+                request.DiscountThresholdPercent,
+                request.TargetPrice,
+                out var alertSettings,
+                out var alertError))
+        {
+            return BadRequest(new { error = alertError });
+        }
+
+        ApplyAlertSettings(up, alertSettings);
         await db.SaveChangesAsync();
-        return Ok(new { up.Id, up.TargetPrice });
+        return Ok(new
+        {
+            up.Id,
+            up.AlertMode,
+            up.DiscountThresholdPercent,
+            up.TargetPrice
+        });
     }
 
     // POST api/products/{id}/check
@@ -275,7 +327,122 @@ public class ProductsController(
 
         return Ok(new { message = $"'{product.Name}' için test bildirimi gönderildi.", fcmTokenExists = fcmToken != null, fcmTokenPreview = fcmToken?[..Math.Min(20, fcmToken.Length)], sendResult = result });
     }
+
+    private static void ApplyAlertSettings(UserProduct userProduct, AlertSettings settings)
+    {
+        userProduct.AlertMode = settings.AlertMode;
+        userProduct.DiscountThresholdPercent = settings.DiscountThresholdPercent;
+        userProduct.TargetPrice = settings.TargetPrice;
+    }
+
+    private static bool TryBuildAlertSettings(
+        string? alertMode,
+        decimal? discountThresholdPercent,
+        decimal? targetPrice,
+        out AlertSettings settings,
+        out string error)
+    {
+        error = string.Empty;
+        var normalizedMode = string.IsNullOrWhiteSpace(alertMode)
+            ? InferAlertMode(discountThresholdPercent, targetPrice)
+            : alertMode.Trim().ToLowerInvariant();
+
+        if (!UserProductAlertMode.IsValid(normalizedMode))
+        {
+            settings = default!;
+            error = "Geçersiz alarm modu.";
+            return false;
+        }
+
+        switch (normalizedMode)
+        {
+            case UserProductAlertMode.Automatic:
+                settings = new AlertSettings(UserProductAlertMode.Automatic, null, null);
+                return true;
+
+            case UserProductAlertMode.Percentage:
+                if (!discountThresholdPercent.HasValue)
+                {
+                    settings = default!;
+                    error = "Yüzde alarmı için indirim yüzdesi gerekli.";
+                    return false;
+                }
+
+                if (discountThresholdPercent <= 0 || discountThresholdPercent > 100)
+                {
+                    settings = default!;
+                    error = "İndirim yüzdesi 0 ile 100 arasında olmalı.";
+                    return false;
+                }
+
+                settings = new AlertSettings(
+                    UserProductAlertMode.Percentage,
+                    decimal.Round(discountThresholdPercent.Value, 2),
+                    null);
+                return true;
+
+            case UserProductAlertMode.TargetPrice:
+                if (!targetPrice.HasValue)
+                {
+                    settings = default!;
+                    error = "Hedef fiyat alarmı için fiyat gerekli.";
+                    return false;
+                }
+
+                if (targetPrice <= 0)
+                {
+                    settings = default!;
+                    error = "Hedef fiyat 0'dan büyük olmalı.";
+                    return false;
+                }
+
+                settings = new AlertSettings(
+                    UserProductAlertMode.TargetPrice,
+                    null,
+                    decimal.Round(targetPrice.Value, 2));
+                return true;
+
+            default:
+                settings = default!;
+                error = "Geçersiz alarm modu.";
+                return false;
+        }
+    }
+
+    private static string InferAlertMode(decimal? discountThresholdPercent, decimal? targetPrice)
+    {
+        if (targetPrice.HasValue)
+        {
+            return UserProductAlertMode.TargetPrice;
+        }
+
+        if (discountThresholdPercent.HasValue)
+        {
+            return UserProductAlertMode.Percentage;
+        }
+
+        return UserProductAlertMode.Automatic;
+    }
+
+    private sealed record AlertSettings(
+        string AlertMode,
+        decimal? DiscountThresholdPercent,
+        decimal? TargetPrice);
 }
 
-public record CreateProductRequest(string Url, string? Name, decimal? TargetPrice);
+public sealed record CreateProductRequest
+{
+    public string Url { get; init; } = string.Empty;
+    public string? Name { get; init; }
+    public string? AlertMode { get; init; }
+    public decimal? DiscountThresholdPercent { get; init; }
+    public decimal? TargetPrice { get; init; }
+}
+
 public record UpdateTargetPriceRequest(decimal? TargetPrice);
+public sealed record UpdateAlertSettingsRequest
+{
+    public string? AlertMode { get; init; }
+    public decimal? DiscountThresholdPercent { get; init; }
+    public decimal? TargetPrice { get; init; }
+}
