@@ -41,6 +41,7 @@ public class ProductsController(
                     up.Product.Store,
                     up.Product.InitialPrice,
                     up.Product.CurrentPrice,
+                    up.Product.PriceStatus,
                     up.Product.LastCheckedAt,
                     up.Product.CreatedAt,
                     PriceHistories = up.Product.PriceHistories
@@ -77,6 +78,7 @@ public class ProductsController(
                     up.Product.Store,
                     up.Product.InitialPrice,
                     up.Product.CurrentPrice,
+                    up.Product.PriceStatus,
                     up.Product.LastCheckedAt,
                     up.Product.CreatedAt,
                     PriceHistories = up.Product.PriceHistories

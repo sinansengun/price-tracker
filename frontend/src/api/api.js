@@ -43,6 +43,7 @@ export function flattenProduct(up) {
         store: up.product.store,
         initialPrice: up.product.initialPrice,
         currentPrice: up.product.currentPrice,
+        priceStatus: up.product.priceStatus,
         targetPrice: up.targetPrice,
         lastCheckedAt: up.product.lastCheckedAt,
         createdAt: up.product.createdAt,
@@ -50,4 +51,16 @@ export function flattenProduct(up) {
         labels: up.labels ?? [],
         priceHistories: up.product.priceHistories ?? [],
     };
+}
+export function getMissingPriceLabel(product) {
+    if (product.currentPrice != null)
+        return null;
+    switch (product.priceStatus) {
+        case 'out_of_stock':
+            return 'Stokta yok';
+        case 'price_not_found':
+            return 'Fiyat bulunamadı';
+        default:
+            return product.lastCheckedAt ? 'Fiyat bulunamadı' : 'Fiyat kontrolü bekleniyor';
+    }
 }

@@ -130,6 +130,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     );
     final imageUrl = _resolveImageUrl(p.imageUrl);
     final cs = Theme.of(context).colorScheme;
+    final missingPriceLabel = p.missingPriceLabel ?? 'Fiyat kontrolü bekleniyor';
     final isPriceDrop = p.currentPrice != null &&
         p.initialPrice != null &&
         p.currentPrice! < p.initialPrice!;
@@ -195,10 +196,14 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                     _PriceTile(
                         label: 'Güncel Fiyat',
                         value: p.currentPrice,
+                      emptyText: missingPriceLabel,
+                      emptyColor: p.isOutOfStock ? Colors.orange.shade700 : null,
                         color: isPriceDrop ? Colors.green : null),
                     const SizedBox(width: 16),
                     _PriceTile(
-                        label: 'Başlangıç Fiyatı', value: p.initialPrice),
+                      label: 'Başlangıç Fiyatı',
+                      value: p.initialPrice,
+                      emptyText: 'Henüz yok'),
                   ],
                 ),
                 const SizedBox(height: 8),
@@ -501,8 +506,16 @@ class _PriceTile extends StatelessWidget {
   final String label;
   final double? value;
   final Color? color;
+  final String emptyText;
+  final Color? emptyColor;
 
-  const _PriceTile({required this.label, this.value, this.color});
+  const _PriceTile({
+    required this.label,
+    this.value,
+    this.color,
+    this.emptyText = '—',
+    this.emptyColor,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -518,9 +531,14 @@ class _PriceTile extends StatelessWidget {
           if (value != null)
             PriceText(value: value!, fontSize: 15, color: color)
           else
-            const Text('—',
-                style: TextStyle(
-                    fontSize: 15, fontWeight: FontWeight.bold)),
+            Text(
+              emptyText,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: emptyColor,
+              ),
+            ),
         ],
       ),
     );

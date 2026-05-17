@@ -16,7 +16,7 @@ import {
 } from 'recharts'
 import {
   getProduct, checkProduct, deleteProduct, getLabels, createLabel, addProductLabel, removeProductLabel,
-  flattenProduct, UserProductResponse, Product, Label
+  flattenProduct, UserProductResponse, Product, Label, getMissingPriceLabel
 } from '../api/api'
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -37,6 +37,12 @@ function PriceText({ price, className = '' }: { price: number; className?: strin
       <span className="ml-0.5 align-bottom text-[0.62em]">,{decimalPart} ₺</span>
     </span>
   )
+}
+
+function priceStateClass(product: Pick<Product, 'priceStatus'>) {
+  return product.priceStatus === 'out_of_stock'
+    ? 'bg-amber-100 text-amber-700'
+    : 'bg-slate-100 text-slate-600'
 }
 
 function fmtDate(iso: string) {
@@ -258,6 +264,7 @@ export default function ProductDetailPage() {
   const priceChange = p.initialPrice && p.currentPrice
     ? ((p.currentPrice - p.initialPrice) / p.initialPrice) * 100
     : null
+  const missingPriceLabel = getMissingPriceLabel(p)
 
   const detailChartPoints = buildLast30DaySeries(p?.priceHistories)
   const hasChartData = detailChartPoints.some(point => point.v != null)
@@ -337,6 +344,11 @@ export default function ProductDetailPage() {
               {p.currentPrice != null && (
                 <span className="text-2xl font-bold text-gray-900"><PriceText price={p.currentPrice} /></span>
               )}
+              {p.currentPrice == null && missingPriceLabel && (
+                <span className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-semibold ${priceStateClass(p)}`}>
+                  {missingPriceLabel}
+                </span>
+              )}
               {priceChange !== null && Math.abs(priceChange) >= 0.01 && (
                 <span
                   className={`inline-flex items-center gap-0.5 text-sm font-semibold px-2 py-0.5 rounded-full ${
@@ -350,7 +362,7 @@ export default function ProductDetailPage() {
 
             <div className="flex flex-col items-start gap-1 text-xs text-gray-500">
               <span>
-                Fiyat: <strong className="text-gray-700">{p.currentPrice != null ? <PriceText price={p.currentPrice} /> : '-'}</strong>
+                Fiyat: <strong className="text-gray-700">{p.currentPrice != null ? <PriceText price={p.currentPrice} /> : (missingPriceLabel ?? '-')}</strong>
               </span>
               <span>
                 Ekleme tarihi: <strong className="text-gray-700">{fmtDate(p.createdAt)}</strong>

@@ -68,6 +68,22 @@ public class PriceCheckJob(
         var checkedAt = DateTime.UtcNow;
         var lastWeekStart = checkedAt.AddDays(-7);
         var previousPrice = product.CurrentPrice;
+
+        if (!result.HasPrice)
+        {
+            product.CurrentPrice = null;
+            product.PriceStatus = NormalizePriceStatus(result.PriceStatus);
+            product.LastCheckedAt = checkedAt;
+
+            UpdateProductMetadata(product, result);
+
+            await db.SaveChangesAsync();
+
+            context?.WriteLine(
+                $"Price unavailable for '{product.Name}': status={product.PriceStatus}, previous={(previousPrice?.ToString("F2") ?? "-")} -> -");
+            return;
+        }
+
         var lastWeekMinPrice = await db.PriceHistories
             .Where(h => h.ProductId == product.Id && h.CheckedAt >= lastWeekStart)
             .Select(h => (decimal?)h.Price)
@@ -75,16 +91,10 @@ public class PriceCheckJob(
 
         product.CurrentPrice = result.Price;
         product.InitialPrice ??= result.Price;
+        product.PriceStatus = ProductPriceStatus.Available;
         product.LastCheckedAt = checkedAt;
 
-        if (string.IsNullOrEmpty(product.Name) || product.Name == "Bilinmeyen Ürün")
-            product.Name = result.Name;
-
-        if (string.IsNullOrEmpty(product.ImageUrl))
-            product.ImageUrl = result.ImageUrl;
-
-        if (string.IsNullOrEmpty(product.Store))
-            product.Store = result.Store;
+        UpdateProductMetadata(product, result);
 
         db.PriceHistories.Add(new PriceHistory
         {
@@ -153,6 +163,28 @@ public class PriceCheckJob(
         {
             context?.WriteLine($"No price change for '{product.Name}' ({result.Price:F2})");
         }
+    }
+
+    private static void UpdateProductMetadata(Product product, ScrapeResult result)
+    {
+        if (string.IsNullOrEmpty(product.Name) || product.Name == "Bilinmeyen Ürün")
+            product.Name = result.Name;
+
+        if (string.IsNullOrEmpty(product.ImageUrl))
+            product.ImageUrl = result.ImageUrl;
+
+        if (string.IsNullOrEmpty(product.Store))
+            product.Store = result.Store;
+    }
+
+    private static string NormalizePriceStatus(string? priceStatus)
+    {
+        return priceStatus switch
+        {
+            ProductPriceStatus.OutOfStock => ProductPriceStatus.OutOfStock,
+            ProductPriceStatus.PriceNotFound => ProductPriceStatus.PriceNotFound,
+            _ => ProductPriceStatus.PriceNotFound
+        };
     }
 
     public async Task<object> SendTestNotificationAsync(Product product, decimal oldPrice, decimal newPrice)

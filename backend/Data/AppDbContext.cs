@@ -23,6 +23,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
             e.HasIndex(p => p.Url).IsUnique();
             e.Property(p => p.CurrentPrice).HasColumnType("decimal(18,2)");
             e.Property(p => p.InitialPrice).HasColumnType("decimal(18,2)");
+            e.Property(p => p.PriceStatus).HasMaxLength(32);
         });
 
         modelBuilder.Entity<PriceHistory>(e =>

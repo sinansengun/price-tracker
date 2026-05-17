@@ -1,10 +1,27 @@
 using System.Text.RegularExpressions;
+using PriceTracker.Models;
 
 namespace PriceTracker.Services.Scrapers;
 
 public class AmazonScraper(ILogger<AmazonScraper> logger, IHttpClientFactory httpClientFactory)
     : ScraperBase(logger, httpClientFactory)
 {
+    private static readonly string[] PrimaryPriceMarkers =
+    [
+        "id=\"corePriceDisplay_desktop_feature_div\"",
+        "id=\"corePrice_feature_div\"",
+        "id=\"corePrice_desktop\"",
+        "id=\"apex_desktop\"",
+        "id=\"desktop_buybox\"",
+        "id=\"exports_desktop_qualifiedBuybox_priceStrings\""
+    ];
+
+    private static readonly string[] SecondaryPriceMarkers =
+    [
+        "id=\"productTitle\"",
+        "id=\"ppd\""
+    ];
+
     public override bool CanHandle(string url) =>
         url.Contains("amazon.com") || url.Contains("amzn.eu") || url.Contains("amzn.to");
 
@@ -70,84 +87,35 @@ public class AmazonScraper(ILogger<AmazonScraper> logger, IHttpClientFactory htt
     {
         try
         {
-            decimal? price = null;
+            var name = ExtractProductName(html);
+            var imageUrl = ExtractProductImageUrl(html);
+            var price = TryExtractPriceFromCandidates(GetLineWindowsAroundMarkers(html, PrimaryPriceMarkers, beforeLines: 20, afterLines: 220));
+            price ??= TryExtractPriceFromCandidates(GetLineWindowsAroundMarkers(html, SecondaryPriceMarkers, beforeLines: 20, afterLines: 260));
 
-            // Pattern 1: priceAmount JSON in script tags
-            var m = Regex.Match(html, @"""priceAmount""\s*:\s*""?([\d.]+)""?");
-            if (m.Success) price = ParsePrice(m.Groups[1].Value);
-
-            // Pattern 2: <span class="a-offscreen"> (screen reader price — most reliable)
             if (price == null)
             {
-                foreach (Match om in Regex.Matches(html, @"<span[^>]+class=""a-offscreen""[^>]*>([^<]+)</span>"))
+                if (IsExplicitlyUnavailable(html))
                 {
-                    var candidate = ParsePrice(om.Groups[1].Value);
-                    if (candidate is > 0) { price = candidate; break; }
+                    Logger.LogInformation("Amazon HTML: ürün stokta yok veya fiyat görünmüyor. {Url}", url);
+                    return new ScrapeResult
+                    {
+                        Name = name ?? "Bilinmeyen Ürün",
+                        ImageUrl = imageUrl,
+                        Store = store,
+                        HasPrice = false,
+                        PriceStatus = ProductPriceStatus.OutOfStock
+                    };
                 }
-            }
 
-            // Pattern 3: priceblock_ourprice / priceblock_dealprice (eski sayfalar)
-            if (price == null)
-            {
-                m = Regex.Match(html, @"id=""priceblock_(?:ourprice|dealprice|saleprice)""[^>]*>([^<]+)<");
-                if (m.Success) price = ParsePrice(m.Groups[1].Value);
-            }
-
-            // Pattern 4: buyingPrice JSON
-            if (price == null)
-            {
-                m = Regex.Match(html, @"""buyingPrice""\s*:\s*([\d.]+)");
-                if (m.Success) price = ParsePrice(m.Groups[1].Value);
-            }
-
-            if (price == null)
-            {
                 Logger.LogWarning("Amazon HTML: fiyat bulunamadı. {Url}", url);
-                return null;
-            }
-
-            // İsim: productTitle span ya da og:title
-            string? name = null;
-            m = Regex.Match(html, @"id=""productTitle""[^>]*>\s*([\s\S]*?)\s*</span>", RegexOptions.IgnoreCase);
-            if (m.Success) name = Regex.Replace(m.Groups[1].Value, @"\s+", " ").Trim();
-
-            if (string.IsNullOrEmpty(name))
-            {
-                m = Regex.Match(html, @"<meta[^>]+property=""og:title""[^>]+content=""([^""]+)""", RegexOptions.IgnoreCase);
-                if (m.Success) name = m.Groups[1].Value.Trim();
-            }
-
-            // Görsel: birden fazla Amazon pattern'i
-            string? imageUrl = null;
-
-            // Pattern 1: data-a-dynamic-image (JSON map url→[w,h])
-            m = Regex.Match(html, @"data-a-dynamic-image=""(\{[^""]+})", RegexOptions.IgnoreCase);
-            if (m.Success)
-            {
-                var jsonRaw = System.Net.WebUtility.HtmlDecode(m.Groups[1].Value);
-                var urlKey  = Regex.Match(jsonRaw, @"""(https://[^""]+)""");
-                if (urlKey.Success) imageUrl = urlKey.Groups[1].Value;
-            }
-
-            // Pattern 2: landingImage src
-            if (imageUrl == null)
-            {
-                m = Regex.Match(html, @"id=""landingImage""[^>]+src=""([^""]+)""", RegexOptions.IgnoreCase);
-                if (m.Success) imageUrl = m.Groups[1].Value;
-            }
-
-            // Pattern 3: imgTagWrapper img src
-            if (imageUrl == null)
-            {
-                m = Regex.Match(html, @"id=""imgTagWrapper""[\s\S]{0,200}?src=""([^""]+)""", RegexOptions.IgnoreCase);
-                if (m.Success) imageUrl = m.Groups[1].Value;
-            }
-
-            // Pattern 4: og:image
-            if (imageUrl == null)
-            {
-                m = Regex.Match(html, @"<meta[^>]+property=""og:image""[^>]+content=""([^""]+)""", RegexOptions.IgnoreCase);
-                if (m.Success) imageUrl = m.Groups[1].Value;
+                return new ScrapeResult
+                {
+                    Name = name ?? "Bilinmeyen Ürün",
+                    ImageUrl = imageUrl,
+                    Store = store,
+                    HasPrice = false,
+                    PriceStatus = ProductPriceStatus.PriceNotFound
+                };
             }
 
             Logger.LogInformation("Amazon HTML başarılı: {Name} = {Price}", name, price);
@@ -158,5 +126,122 @@ public class AmazonScraper(ILogger<AmazonScraper> logger, IHttpClientFactory htt
             Logger.LogError(ex, "Amazon HTML extraction failed for {Url}", url);
             return null;
         }
+    }
+
+    private static decimal? TryExtractPriceFromCandidates(IEnumerable<string> candidates)
+    {
+        foreach (var candidateHtml in candidates)
+        {
+            var price = TryExtractPriceFromFragment(candidateHtml);
+            if (price != null)
+            {
+                return price;
+            }
+        }
+
+        return null;
+    }
+
+    private static decimal? TryExtractPriceFromFragment(string html)
+    {
+        var m = Regex.Match(html, @"""priceAmount""\s*:\s*""?([\d.,]+)""?", RegexOptions.IgnoreCase);
+        if (m.Success)
+        {
+            return ParsePrice(m.Groups[1].Value);
+        }
+
+        foreach (Match offscreenMatch in Regex.Matches(html, @"<span[^>]+class=""a-offscreen""[^>]*>([^<]+)</span>", RegexOptions.IgnoreCase))
+        {
+            var price = ParsePrice(offscreenMatch.Groups[1].Value);
+            if (price is > 0)
+            {
+                return price;
+            }
+        }
+
+        m = Regex.Match(html, @"id=""priceblock_(?:ourprice|dealprice|saleprice)""[^>]*>([^<]+)<", RegexOptions.IgnoreCase);
+        if (m.Success)
+        {
+            return ParsePrice(m.Groups[1].Value);
+        }
+
+        m = Regex.Match(html, @"""buyingPrice""\s*:\s*([\d.,]+)", RegexOptions.IgnoreCase);
+        if (m.Success)
+        {
+            return ParsePrice(m.Groups[1].Value);
+        }
+
+        return null;
+    }
+
+    private static IEnumerable<string> GetLineWindowsAroundMarkers(string html, IEnumerable<string> markers, int beforeLines, int afterLines)
+    {
+        var lines = html.Split('\n');
+        var seenLineIndexes = new HashSet<int>();
+
+        foreach (var marker in markers)
+        {
+            for (var i = 0; i < lines.Length; i++)
+            {
+                if (!lines[i].Contains(marker, StringComparison.OrdinalIgnoreCase) || !seenLineIndexes.Add(i))
+                {
+                    continue;
+                }
+
+                var start = Math.Max(0, i - beforeLines);
+                var count = Math.Min(lines.Length - start, beforeLines + afterLines + 1);
+                yield return string.Join("\n", lines, start, count);
+                break;
+            }
+        }
+    }
+
+    private static bool IsExplicitlyUnavailable(string html)
+    {
+        return html.Contains("Şu anda mevcut değil", StringComparison.OrdinalIgnoreCase)
+            || html.Contains("Currently unavailable", StringComparison.OrdinalIgnoreCase)
+            || html.Contains("See all buying options", StringComparison.OrdinalIgnoreCase)
+            || html.Contains("Tüm satın alma seçeneklerini gör", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? ExtractProductName(string html)
+    {
+        var m = Regex.Match(html, @"id=""productTitle""[^>]*>\s*([\s\S]*?)\s*</span>", RegexOptions.IgnoreCase);
+        if (m.Success)
+        {
+            return Regex.Replace(m.Groups[1].Value, @"\s+", " ").Trim();
+        }
+
+        m = Regex.Match(html, @"<meta[^>]+property=""og:title""[^>]+content=""([^""]+)""", RegexOptions.IgnoreCase);
+        return m.Success ? m.Groups[1].Value.Trim() : null;
+    }
+
+    private static string? ExtractProductImageUrl(string html)
+    {
+        var m = Regex.Match(html, @"data-a-dynamic-image=""(\{[^""]+})", RegexOptions.IgnoreCase);
+        if (m.Success)
+        {
+            var jsonRaw = System.Net.WebUtility.HtmlDecode(m.Groups[1].Value);
+            var urlKey = Regex.Match(jsonRaw, @"""(https://[^""]+)""");
+            if (urlKey.Success)
+            {
+                return urlKey.Groups[1].Value;
+            }
+        }
+
+        m = Regex.Match(html, @"id=""landingImage""[^>]+src=""([^""]+)""", RegexOptions.IgnoreCase);
+        if (m.Success)
+        {
+            return m.Groups[1].Value;
+        }
+
+        m = Regex.Match(html, @"id=""imgTagWrapper""[\s\S]{0,200}?src=""([^""]+)""", RegexOptions.IgnoreCase);
+        if (m.Success)
+        {
+            return m.Groups[1].Value;
+        }
+
+        m = Regex.Match(html, @"<meta[^>]+property=""og:image""[^>]+content=""([^""]+)""", RegexOptions.IgnoreCase);
+        return m.Success ? m.Groups[1].Value : null;
     }
 }

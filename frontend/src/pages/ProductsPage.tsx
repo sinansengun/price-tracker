@@ -16,7 +16,7 @@ import { LineChart, Line, ResponsiveContainer, Tooltip, YAxis } from 'recharts'
 import {
   getProducts, getLabels, createProduct, addProductLabel, removeProductLabel, createLabel, deleteLabel,
   clearToken, flattenProduct,
-  Product, Label, PriceHistory
+  Product, Label, PriceHistory, getMissingPriceLabel
 } from '../api/api'
 
 function AddProductModal({ onClose, onAdded }: { onClose: () => void; onAdded: (message: string) => void }) {
@@ -125,6 +125,12 @@ function PriceText({ price, className = '' }: { price: number; className?: strin
       <span className="ml-0.5 align-bottom text-[0.62em]">,{decimalPart} ₺</span>
     </span>
   )
+}
+
+function priceStateClass(product: Pick<Product, 'priceStatus'>) {
+  return product.priceStatus === 'out_of_stock'
+    ? 'text-amber-700'
+    : 'text-gray-500'
 }
 
 function fmtDate(iso: string, includeTime = false) {
@@ -375,6 +381,7 @@ function ProductRow({
 }) {
   const navigate = useNavigate()
   const imgSrc = product.imageUrl?.replace('{size}', '200')
+  const missingPriceLabel = getMissingPriceLabel(product)
 
   const histories = product.priceHistories
   const sorted = histories
@@ -431,7 +438,7 @@ function ProductRow({
                 )}
               </>
             ) : (
-              <p className="text-sm text-gray-400">Fiyat bekleniyor</p>
+              <p className={`text-sm font-medium ${priceStateClass(product)}`}>{missingPriceLabel}</p>
             )}
           </div>
 
@@ -518,6 +525,7 @@ function ProductRow({
 function ProductCard({ product }: { product: Product }) {
   const navigate = useNavigate()
   const imgSrc = product.imageUrl?.replace('{size}', '375')
+  const missingPriceLabel = getMissingPriceLabel(product)
 
   const initial = product.initialPrice
   const current = product.currentPrice
@@ -559,7 +567,7 @@ function ProductCard({ product }: { product: Product }) {
         <div className="flex items-center gap-2 flex-wrap">
           {current != null
             ? <span className="text-lg font-bold text-gray-900"><PriceText price={current} /></span>
-            : <span className="text-sm text-gray-400">Fiyat bekleniyor...</span>}
+            : <span className={`text-sm font-medium ${priceStateClass(product)}`}>{missingPriceLabel}</span>}
           {pct !== null && Math.abs(pct) >= 0.01 && (
             <span className={`inline-flex items-center gap-0.5 text-xs font-semibold px-1.5 py-0.5 rounded-full ${pctUp ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
               {pctUp ? '▲' : '▼'} {Math.abs(pct).toFixed(1)}%

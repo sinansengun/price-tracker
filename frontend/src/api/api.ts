@@ -37,6 +37,8 @@ export interface PriceHistory {
   checkedAt: string
 }
 
+export type ProductPriceStatus = 'available' | 'out_of_stock' | 'price_not_found'
+
 export interface Label {
   id: number
   name: string
@@ -56,6 +58,7 @@ export interface UserProductResponse {
     store?: string
     initialPrice?: number
     currentPrice?: number
+    priceStatus?: ProductPriceStatus
     lastCheckedAt?: string
     createdAt: string
     priceHistories?: PriceHistory[]
@@ -72,6 +75,7 @@ export interface Product {
   store?: string
   initialPrice?: number
   currentPrice?: number
+  priceStatus?: ProductPriceStatus
   targetPrice?: number
   lastCheckedAt?: string
   createdAt: string
@@ -107,11 +111,25 @@ export function flattenProduct(up: UserProductResponse): Product {
     store: up.product.store,
     initialPrice: up.product.initialPrice,
     currentPrice: up.product.currentPrice,
+    priceStatus: up.product.priceStatus,
     targetPrice: up.targetPrice,
     lastCheckedAt: up.product.lastCheckedAt,
     createdAt: up.product.createdAt,
     addedAt: up.addedAt,
     labels: up.labels ?? [],
     priceHistories: up.product.priceHistories ?? [],
+  }
+}
+
+export function getMissingPriceLabel(product: Pick<Product, 'currentPrice' | 'priceStatus' | 'lastCheckedAt'>): string | null {
+  if (product.currentPrice != null) return null
+
+  switch (product.priceStatus) {
+    case 'out_of_stock':
+      return 'Stokta yok'
+    case 'price_not_found':
+      return 'Fiyat bulunamadı'
+    default:
+      return product.lastCheckedAt ? 'Fiyat bulunamadı' : 'Fiyat kontrolü bekleniyor'
   }
 }

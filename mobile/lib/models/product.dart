@@ -1,3 +1,7 @@
+const productPriceStatusAvailable = 'available';
+const productPriceStatusOutOfStock = 'out_of_stock';
+const productPriceStatusPriceNotFound = 'price_not_found';
+
 class Label {
   final int id;
   final String name;
@@ -29,6 +33,7 @@ class ProductInfo {
   final String? store;
   final double? initialPrice;
   final double? currentPrice;
+  final String? priceStatus;
   final DateTime? lastCheckedAt;
   final List<PricePoint> priceHistories;
 
@@ -40,6 +45,7 @@ class ProductInfo {
     this.store,
     this.initialPrice,
     this.currentPrice,
+    this.priceStatus,
     this.lastCheckedAt,
     this.priceHistories = const [],
   });
@@ -52,6 +58,7 @@ class ProductInfo {
         store: j['store'],
         initialPrice: (j['initialPrice'] as num?)?.toDouble(),
         currentPrice: (j['currentPrice'] as num?)?.toDouble(),
+          priceStatus: j['priceStatus'] as String?,
         lastCheckedAt: j['lastCheckedAt'] != null
             ? DateTime.parse(j['lastCheckedAt']).toLocal()
             : null,
@@ -59,6 +66,20 @@ class ProductInfo {
             .map((e) => PricePoint.fromJson(e as Map<String, dynamic>))
             .toList(),
       );
+
+        String? get missingPriceLabel {
+          if (currentPrice != null) return null;
+
+          return switch (priceStatus) {
+        productPriceStatusOutOfStock => 'Stokta yok',
+        productPriceStatusPriceNotFound => 'Fiyat bulunamadı',
+        _ => lastCheckedAt == null
+            ? 'Fiyat kontrolü bekleniyor'
+            : 'Fiyat bulunamadı',
+          };
+        }
+
+        bool get isOutOfStock => priceStatus == productPriceStatusOutOfStock;
 }
 
 class UserProduct {

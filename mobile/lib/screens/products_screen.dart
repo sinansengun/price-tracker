@@ -257,6 +257,7 @@ class _ProductCard extends StatelessWidget {
     final p = up.product;
     final imageUrl = _resolveImageUrl(p.imageUrl);
     final cs = Theme.of(context).colorScheme;
+    final missingPriceLabel = p.missingPriceLabel ?? 'Fiyat kontrolü bekleniyor';
     final isPriceDrop = p.currentPrice != null &&
         p.initialPrice != null &&
         p.currentPrice! < p.initialPrice!;
@@ -332,10 +333,16 @@ class _ProductCard extends StatelessWidget {
                             color: isPriceDrop ? Colors.green : null,
                           )
                         else
-                          const Text('—',
-                              style: TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.bold)),
+                          Text(
+                            missingPriceLabel,
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: p.isOutOfStock
+                                  ? Colors.orange.shade700
+                                  : cs.onSurface.withValues(alpha: 0.68),
+                            ),
+                          ),
                         if (p.initialPrice != null &&
                             p.currentPrice != null &&
                             p.initialPrice != p.currentPrice)
@@ -400,7 +407,9 @@ class _ProductCard extends StatelessWidget {
                           ),
                         ),
                         Text(
-                          'Ekleme fiyatı: ${fmtPrice(p.initialPrice ?? p.currentPrice ?? 0)} ₺',
+                          p.initialPrice != null
+                              ? 'İlk fiyat: ${fmtPrice(p.initialPrice!)} ₺'
+                              : 'İlk fiyat: Henüz yok',
                           style: TextStyle(
                             fontSize: 11,
                             color: cs.onSurface.withValues(alpha: 0.7),

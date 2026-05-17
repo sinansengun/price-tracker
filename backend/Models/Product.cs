@@ -13,6 +13,7 @@ public class Product
     public string? Store { get; set; }
     public decimal? InitialPrice { get; set; }         // İlk scrape fiyatı
     public decimal? CurrentPrice { get; set; }         // Son scrape fiyatı
+    public string? PriceStatus { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? LastCheckedAt { get; set; }
 
